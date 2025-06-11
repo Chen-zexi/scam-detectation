@@ -1,0 +1,19 @@
+/Phishing_Email_Curated_Datasets/
+
+__pycache__/
+
+*.zip
+
+# Environments
+.env
+.venv
+env/
+venv/
+
+# IDEs
+.vscode/
+.cursor/
+
+# Operating System Files
+.DS_Store
+.DS_Store
