@@ -1,13 +1,11 @@
-/Phishing_Email_Curated_Datasets/
+# Environment variables
+.env
 
+# Python
 __pycache__/
 
-*.zip
-
-# Environments
-.env
-.venv
-env/
+# Virtual environments
+.venv/
 venv/
 
 # IDEs
@@ -16,4 +14,16 @@ venv/
 
 # Operating System Files
 .DS_Store
-.DS_Store
+
+# Results and outputs
+*.csv.backup
+llm_evaluation_results.csv
+evaluation_results/
+
+# Temporary file
+*.tmp
+*.temp
+
+# Large datasets
+*.zip
+*.csv
