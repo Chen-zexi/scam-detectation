@@ -74,8 +74,11 @@ wget "https://zenodo.org/api/records/8339691/files-archive" -O "Phishing_Email_C
 # Extract datasets
 unzip "Phishing_Email_Curated_Datasets.zip" -d "Phishing_Email_Curated_Datasets"
 ```
+### Step 5.5: Process the datasets
 
-### Step 6: Process Your Dataset
+Run the `phishing_email_dataset_inspection.ipynb` to process the datasets and get the `unified_phishing_email_dataset.csv`
+
+### Step 6: For the dataset you are evaluating:
 
 Your dataset must be in CSV format with:
 - A `label` column (1=scam, 0=legitimate)
