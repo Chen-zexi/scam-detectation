@@ -1,6 +1,10 @@
 # Environment variables
 .env
 
+results/*
+src/results/*
+
+
 # Python
 __pycache__/
 
