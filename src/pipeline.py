@@ -56,7 +56,13 @@ def parse_arguments():
         '--sample-size', 
         type=int, 
         default=100,
-        help='Number of samples to evaluate (default: 100)'
+        help='Number of samples to evaluate (default: 100). With --balanced-sample, this is split equally between classes.'
+    )
+    
+    parser.add_argument(
+        '--balanced-sample',
+        action='store_true',
+        help='Sample equal numbers of scam and legitimate messages for balanced evaluation'
     )
     
     parser.add_argument(
@@ -118,6 +124,7 @@ def main():
         print(f"Provider: {args.provider}")
         print(f"Model: {args.model}")
         print(f"Sample size: {args.sample_size}")
+        print(f"Balanced sampling: {args.balanced_sample}")
         print(f"Random state: {args.random_state}")
         if args.content_columns:
             print(f"Content columns: {args.content_columns}")
@@ -138,6 +145,7 @@ def main():
             provider=args.provider,
             model=args.model,
             sample_size=args.sample_size,
+            balanced_sample=args.balanced_sample,
             random_state=args.random_state,
             content_columns=args.content_columns
         )

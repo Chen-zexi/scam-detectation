@@ -18,6 +18,7 @@ class ScamDetectionEvaluator:
                  provider: str,
                  model: str,
                  sample_size: int = 100,
+                 balanced_sample: bool = False,
                  random_state: int = 42,
                  content_columns: Optional[List[str]] = None):
         """
@@ -28,6 +29,7 @@ class ScamDetectionEvaluator:
             provider: LLM provider (e.g., 'openai', 'anthropic', 'local')
             model: Model name
             sample_size: Number of samples to evaluate
+            balanced_sample: Whether to sample equal numbers of scam and legitimate messages
             random_state: Random seed for reproducibility
             content_columns: List of column names to use as content for evaluation.
                            If None, uses all non-label columns.
@@ -36,6 +38,7 @@ class ScamDetectionEvaluator:
         self.provider = provider
         self.model = model
         self.sample_size = sample_size
+        self.balanced_sample = balanced_sample
         self.random_state = random_state
         self.content_columns = content_columns
         
@@ -70,8 +73,11 @@ class ScamDetectionEvaluator:
             self.content_columns = self.data_loader.features
             print(f"Using all available features as content: {self.content_columns}")
         
-        # Get sample
-        sample_df = self.data_loader.sample_data(self.sample_size, self.random_state)
+        # Get sample (balanced or regular)
+        if self.balanced_sample:
+            sample_df = self.data_loader.sample_balanced_data(self.sample_size, self.random_state)
+        else:
+            sample_df = self.data_loader.sample_data(self.sample_size, self.random_state)
         
         # Initialize prompt generator with available features and specified content columns
         self.prompt_generator = PromptGenerator(self.data_loader.features, self.content_columns)

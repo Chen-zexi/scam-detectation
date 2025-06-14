@@ -21,8 +21,8 @@ def example():
     print("="*80)
     
     dataset_path = "unified_phishing_email_dataset.csv"
-    provider = "gemini"
-    model = "gemini-2.5-flash-preview-05-20"
+    provider = "vllm"
+    model = "Qwen/Qwen3-30B-A3B"
     sample_size = 5
     
     if not Path(dataset_path).exists():
@@ -56,8 +56,8 @@ def example_with_specific_content_columns():
     print("="*80)
     
     dataset_path = "unified_phishing_email_dataset.csv"
-    provider = "openai"
-    model = "gpt-4.1"
+    provider = "vllm"
+    model = "Qwen/Qwen3-30B-A3B"
     sample_size = 5
     
     if not Path(dataset_path).exists():

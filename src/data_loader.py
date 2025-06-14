@@ -65,6 +65,54 @@ class DatasetLoader:
         
         return sample_df
     
+    def sample_balanced_data(self, n_samples: int = 100, random_state: int = 42) -> pd.DataFrame:
+        """
+        Sample balanced data with equal numbers of scam and legitimate messages
+        
+        Args:
+            n_samples: Total number of samples (will be split equally between classes)
+            random_state: Random seed for reproducibility
+            
+        Returns:
+            Balanced sample dataframe
+        """
+        if self.df is None:
+            raise ValueError("Dataset not loaded. Call load_dataset() first.")
+        
+        # Split data by class
+        scam_df = self.df[self.df['label'] == 1]
+        legitimate_df = self.df[self.df['label'] == 0]
+        
+        print(f"Available data: {len(scam_df)} scam, {len(legitimate_df)} legitimate")
+        
+        # Calculate samples per class (half of total sample size)
+        samples_per_class = n_samples // 2
+        
+        # Check if we have enough samples of each class
+        max_scam_samples = min(samples_per_class, len(scam_df))
+        max_legitimate_samples = min(samples_per_class, len(legitimate_df))
+        
+        # Use the minimum to ensure balance
+        final_samples_per_class = min(max_scam_samples, max_legitimate_samples)
+        
+        if final_samples_per_class < samples_per_class:
+            print(f"Warning: Requested {samples_per_class} samples per class, but can only provide {final_samples_per_class}")
+            print(f"Limited by minority class with {min(len(scam_df), len(legitimate_df))} samples")
+        
+        # Sample equal numbers from each class
+        np.random.seed(random_state)
+        scam_sample = scam_df.sample(n=final_samples_per_class, random_state=random_state)
+        legitimate_sample = legitimate_df.sample(n=final_samples_per_class, random_state=random_state + 1)
+        
+        # Combine and shuffle
+        balanced_sample = pd.concat([scam_sample, legitimate_sample], ignore_index=True)
+        balanced_sample = balanced_sample.sample(frac=1, random_state=random_state + 2).reset_index(drop=True)
+        
+        print(f"Balanced sample created: {final_samples_per_class} scam, {final_samples_per_class} legitimate")
+        print(f"Total balanced sample size: {len(balanced_sample)}")
+        
+        return balanced_sample
+    
     def get_dataset_info(self) -> Dict[str, Any]:
         """Get information about the dataset"""
         if self.df is None:
