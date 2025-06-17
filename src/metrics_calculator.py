@@ -95,7 +95,7 @@ class MetricsCalculator:
         error_results = [r for r in self.results if r.get('predicted_label') is None]
         for error_result in error_results:
             breakdown['error_analysis'].append({
-                'record_id': error_result.get('record_id'),
+                'id': error_result.get('id', 'Unknown'),
                 'error_reason': error_result.get('llm_reason', 'Unknown error')
             })
         

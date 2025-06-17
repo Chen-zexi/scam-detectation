@@ -130,7 +130,7 @@ class ScamDetectionEvaluator:
                 is_correct = predicted_label == actual_label
                 
                 # Create comprehensive result record
-                result = self._create_result_record(i+1, row, predicted_label, is_correct, response.Reason)
+                result = self._create_result_record(row, predicted_label, is_correct, response.Reason)
                 
                 results.append(result)
                 
@@ -141,7 +141,7 @@ class ScamDetectionEvaluator:
                 
             except Exception as e:
                 print(f"  Error processing record {i+1}: {e}")
-                result = self._create_error_result_record(i+1, row, str(e))
+                result = self._create_error_result_record(row, str(e))
                 results.append(result)
         
         self.results = results
@@ -149,14 +149,12 @@ class ScamDetectionEvaluator:
         return results
     
     def _create_result_record(self, 
-                             record_id: int, 
                              row: pd.Series, 
                              predicted_label: int, 
                              is_correct: bool, 
                              llm_reason: str) -> Dict[str, Any]:
         """Create a comprehensive result record including original data"""
         result = {
-            'record_id': record_id,
             'actual_label': row['label'],
             'actual_class': 'Scam' if row['label'] == 1 else 'Legitimate',
             'predicted_label': predicted_label,
@@ -165,16 +163,20 @@ class ScamDetectionEvaluator:
             'llm_reason': llm_reason
         }
         
-        # Add all original features to the result (append evaluation to original dataset)
+        # Add id column if it exists
+        if 'id' in row:
+            result['id'] = row['id']
+        
+        # Add all original features except id (to avoid duplication)
         for feature in self.data_loader.features:
-            result[f'original_{feature}'] = row[feature]
+            if feature != 'id':
+                result[f'original_{feature}'] = row[feature]
         
         return result
     
-    def _create_error_result_record(self, record_id: int, row: pd.Series, error_message: str) -> Dict[str, Any]:
+    def _create_error_result_record(self, row: pd.Series, error_message: str) -> Dict[str, Any]:
         """Create an error result record"""
         result = {
-            'record_id': record_id,
             'actual_label': row['label'],
             'actual_class': 'Scam' if row['label'] == 1 else 'Legitimate',
             'predicted_label': None,
@@ -183,9 +185,14 @@ class ScamDetectionEvaluator:
             'llm_reason': f'Error: {error_message}'
         }
         
-        # Add all original features
+        # Add id column if it exists
+        if 'id' in row:
+            result['id'] = row['id']
+        
+        # Add all original features except id (to avoid duplication)
         for feature in self.data_loader.features:
-            result[f'original_{feature}'] = row[feature]
+            if feature != 'id':
+                result[f'original_{feature}'] = row[feature]
         
         return result
     

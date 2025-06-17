@@ -1,0 +1,39 @@
+{
+  "creation_date": "2025-06-16 04:28:53",
+  "total_records": 2540,
+  "label_distribution": {
+    "legitimate": 1056,
+    "scam": 1484
+  },
+  "content_length_stats": {
+    "mean": 2059.9818897637797,
+    "median": 356.0,
+    "min": 3,
+    "max": 112031
+  },
+  "source_info": {
+    "total_original_errors": 4186,
+    "after_processing": 4186,
+    "after_deduplication": 2540,
+    "duplicates_removed": 1646
+  },
+  "columns": {
+    "main_dataset": [
+      "id",
+      "content",
+      "label",
+      "source"
+    ],
+    "extended_dataset": [
+      "id",
+      "content",
+      "label",
+      "source",
+      "source_datasets",
+      "failed_models",
+      "error_count",
+      "error_types",
+      "llm_reasoning"
+    ]
+  }
+}

@@ -14,16 +14,15 @@ sys.path.append('src')
 
 from src import ScamDetectionEvaluator
 
-def email_eval():
-    """Example using the unified dataset with all features"""
+def sms_eval():
     print("="*80)
-    print("EMAIL EVALUATION: Unified Dataset - All Content Features (Local Model)")
+    print("SMS EVALUATION")
     print("="*80)
     
     dataset_path = "phishing_sms_dataset.csv"
     provider = "lm-studio"
-    model = "qwen3-235b-a22b-128k"
-    sample_size = 100
+    model = "unsloth/qwen3-30b-a3b"
+    sample_size = 5572
     
     if not Path(dataset_path).exists():
         print(f"Dataset not found: {dataset_path}")
@@ -39,21 +38,21 @@ def email_eval():
             sample_size=sample_size,
             random_state=42,
             content_columns=['message'],
-            balanced_sample=True
+            balanced_sample=False
         )
         
         # Run evaluation
         results = evaluator.run_full_evaluation()
         
-        print("\n✓ Email Evaluation completed successfully!")
+        print("\n✓ SMS Evaluation completed successfully!")
         
     except Exception as e:
-        print(f"❌ Email Evaluation failed: {e}")
+        print(f"❌ SMS Evaluation failed: {e}")
 
 def main():
     """Run all examples"""
-    print("SCAM DETECTION PIPELINE - EMAIL EVALUATION")
-    email_eval()
+    print("SCAM DETECTION PIPELINE - SMS EVALUATION")
+    sms_eval()
     
     
 

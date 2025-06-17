@@ -15,9 +15,8 @@ sys.path.append('src')
 from src import ScamDetectionEvaluator
 
 def email_eval():
-    """Example using the unified dataset with all features"""
     print("="*80)
-    print("EMAIL EVALUATION: Unified Dataset - All Content Features (Local Model)")
+    print("EMAIL EVALUATION")
     print("="*80)
     
     dataset_path = "unified_phishing_email_dataset.csv"
