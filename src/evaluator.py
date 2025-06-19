@@ -207,7 +207,7 @@ class ScamDetectionEvaluator:
         # Print summary
         dataset_info = self.data_loader.get_dataset_info()
         dataset_info['features'] = self.content_columns
-        calculator.print_metrics_summary(dataset_info)
+        #calculator.print_metrics_summary(dataset_info)
         
         return metrics
     
@@ -222,7 +222,8 @@ class ScamDetectionEvaluator:
         
         dataset_info['features'] = self.content_columns
         dataset_info['features_used'] = self.content_columns
-        
+        calculator = MetricsCalculator(self.results)
+        calculator.print_metrics_summary(dataset_info)
         # Initialize results saver
         saver = ResultsSaver(
             dataset_name=self.data_loader.dataset_name,

@@ -19,14 +19,14 @@ def error_eval():
     print("EMAIL EVALUATION: Unified Dataset - All Content Features (Local Model)")
     print("="*80)
     
-    dataset_path = "unified_error_dataset/unified_error_dataset.csv"
+    dataset_path = "data/cleaned/unified_error_dataset/unified_error_dataset.csv"
     provider = "openai"
     model = "gpt-4.1-mini"
     sample_size = 2540
     
     if not Path(dataset_path).exists():
         print(f"Dataset not found: {dataset_path}")
-        print("Please ensure the dataset file exists in the current directory.")
+        print("Please ensure the dataset file exists in the data/cleaned")
         return
     
     try:

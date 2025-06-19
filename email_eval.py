@@ -19,14 +19,14 @@ def email_eval():
     print("EMAIL EVALUATION")
     print("="*80)
     
-    dataset_path = "unified_phishing_email_dataset.csv"
+    dataset_path = "data/cleaned/unified_phishing_email_dataset.csv"
     provider = "lm-studio"
     model = "qwen3-235b-a22b-128k"
     sample_size = 500
     
     if not Path(dataset_path).exists():
         print(f"Dataset not found: {dataset_path}")
-        print("Please ensure the dataset file exists in the current directory.")
+        print("Please ensure the dataset file exists in the data/cleaned")
         return
     
     try:

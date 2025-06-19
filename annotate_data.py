@@ -17,10 +17,10 @@ from src.annotation_pipeline import LLMAnnotationPipeline
 
 def annotation():
     print("="*80)
-    print("SMS ANNOTATION: Generating explanations for scam/legitimate classifications")
+    print("ANNOTATION: Generating explanations for scam/legitimate classifications")
     print("="*80)
     
-    dataset_path = "unified_error_dataset/unified_error_dataset.csv"
+    dataset_path = "data/cleaned/unified_error_dataset/unified_error_dataset.csv"
     provider = "lm-studio"
     model = "unsloth/qwen3-235b-a22b"
     sample_size = 2540
@@ -46,15 +46,15 @@ def annotation():
         # Run annotation
         results = pipeline.run_full_annotation()
         
-        print("\n✓ SMS Annotation completed successfully!")
+        print("\n Annotation completed successfully!")
         print(f"Results saved to: {results['save_paths']['results_directory']}")
         
     except Exception as e:
-        print(f"❌ SMS Annotation failed: {e}")
+        print(f" Annotation failed: {e}")
 
 def main():
     """Run annotation example"""
-    print("SCAM DETECTION ANNOTATION PIPELINE - SMS DATASET")
+    print("SCAM DETECTION ANNOTATION PIPELINE - DATASET")
     annotation()
 
 if __name__ == "__main__":

@@ -65,18 +65,22 @@ HOST_IP=ip-of-your-localhost
 
 ## Data Setup
 
-### Step 5: Download Sample Dataset
+### Step 5: Download and Prepare Sample Datasets (Optional)
 
 ```bash
+# Create necessary directories
+mkdir -p data/cleaned data/raw
+
 # Download phishing email datasets (optional - for testing)
+cd data/raw
 wget "https://zenodo.org/api/records/8339691/files-archive" -O "Phishing_Email_Curated_Datasets.zip"
 
 # Extract datasets
-unzip "Phishing_Email_Curated_Datasets.zip" -d "Phishing_Email_Curated_Datasets"
+unzip "Phishing_Email_Curated_Datasets.zip"
+cd ../..
 ```
-### Step 5.5: Process the datasets
 
-Run the `phishing_email_dataset_inspection.ipynb` to process the datasets and get the `unified_phishing_email_dataset.csv`
+### Step 5.5: Process Sample Datasets
 
 ### Step 6: For the dataset you are evaluating:
 
@@ -100,108 +104,136 @@ message,phone,timestamp,label
 "Reminder: Doctor appointment",+1987654321,2024-01-01,0
 ```
 
-## Running Examples
+## Dataset Setup and Placement
 
-### Step 7: Test Your Setup
+### Step 7: Prepare Your Datasets
 
-```bash
-# Test with dry run (no API calls) You should expect to see dry run working.
-cd src
-python pipeline.py --dataset ../unified_phishing_email_dataset.csv --provider openai --model gpt-4.1 --sample-size 2 --dry-run
+Place your datasets in the appropriate directories based on the type of evaluation:
 
-# Run with a small sample size
-python pipeline.py --dataset ../unified_phishing_email_dataset.csv --provider openai --model gpt-4.1 --sample-size 2
+**For Email Phishing Evaluation:**
+- Place your email dataset at: `data/cleaned/unified_phishing_email_dataset.csv`
+- Required columns: `subject`, `body`, `label` (1=scam, 0=legitimate)
 
-# Run example scripts
-cd ..
-python example_usage.py
-```
+**For SMS Phishing Evaluation:**
+- Place your SMS dataset at: `data/cleaned/phishing_sms_dataset.csv`
+- Required columns: `message`, `label` (1=scam, 0=legitimate)
 
-### Step 8: Run Your Own Evaluation
+**For Error Dataset Evaluation:**
+- The error dataset is complied from the datapoints that the LLM failed to classify.
+- Place your error dataset at: `data/cleaned/unified_error_dataset/unified_error_dataset.csv`
+- Required columns: `content`, `label` (1=scam, 0=legitimate)
 
-```bash
-# Basic evaluation with all content features using openai gpt-4.1 for 10 samples
-cd src
-python pipeline.py --dataset ../your_dataset.csv --provider openai --model gpt-4.1 --sample-size 10
+### Step 8: Running Evaluations
 
-# Specify which columns to use as content (eg. subject and body) using openai gpt-4.1 for 100 samples
-python pipeline.py --dataset ../your_dataset.csv --provider openai --model gpt-4.1 --content-columns subject body --sample-size 100
-```
-
-## Command Line Usage Guide
-
-### Basic Commands
+Use the specific evaluation scripts for different dataset types:
 
 ```bash
-# Minimum required parameters (run from src directory)
-cd src
-python pipeline.py --dataset ../DATA.csv --provider PROVIDER --model MODEL
+# Email Phishing Evaluation
+python email_eval.py
 
-# Full parameter example
-python pipeline.py \
-  --dataset ../your_dataset.csv \
-  --provider openai \
-  --model gpt-4 \
-  --sample-size 100 \
-  --content-columns subject body sender \
-  --random-state 42
+# SMS Phishing Evaluation
+python sms_eval.py
+
+# Error Dataset Evaluation
+python error_eval.py
 ```
 
-### Parameters
+### Step 9: Customizing Evaluation Parameters
 
-| Parameter | Required | Description | Example |
-|-----------|----------|-------------|---------|
-| `--dataset` | ✅ | Path to CSV dataset | `--dataset data.csv` |
-| `--provider` | ✅ | LLM provider | `--provider openai` |
-| `--model` | ✅ | Model name | `--model gpt-4` |
-| `--sample-size` | ❌ | Number of samples to evaluate (default: 100) | `--sample-size 50` |
-| `--content-columns` | ❌ | Specific columns to use (default: all) | `--content-columns subject body` |
-| `--random-state` | ❌ | Random seed (default: 42) | `--random-state 123` |
-| `--dry-run` | ❌ | Test without API calls | `--dry-run` |
+To modify evaluation parameters, edit the respective evaluation scripts:
+
+**For Email Evaluation (`email_eval.py`):**
+```python
+# Modify these parameters in the email_eval() function
+dataset_path = "data/cleaned/unified_phishing_email_dataset.csv"
+provider = "openai"  # or "lm-studio", "anthropic", "gemini"
+model = "gpt-4"
+sample_size = 500
+content_columns = ['subject', 'body']
+```
+
+**For SMS Evaluation (`sms_eval.py`):**
+```python
+# Modify these parameters in the sms_eval() function
+dataset_path = "data/cleaned/phishing_sms_dataset.csv"
+provider = "openai"  # or "lm-studio", "anthropic", "gemini"
+model = "gpt-4.1"
+sample_size = 100
+content_columns = ['message']
+```
+
+**For Evaluation over Error Dataset (`error_eval.py`):**
+```python
+# Modify these parameters in the error_eval() function
+dataset_path = "data/cleaned/unified_error_dataset/unified_error_dataset.csv"
+provider = "openai"  # or "lm-studio", "anthropic", "gemini"
+model = "gpt-4"
+sample_size = 100
+content_columns = ['content']
+```
 
 
 
 ## Python Script Usage
 
-### Basic Usage
+### Using Evaluation Scripts
+
+The easiest way to run evaluations is using the provided evaluation scripts:
+
+```python
+# For email phishing evaluation
+run email_eval.py
+
+# For SMS phishing evaluation  
+run sms_eval.py
+
+# For error dataset evaluation
+run error_eval.py
+```
+
+### Custom Evaluation Script
+
+Create your own evaluation script based on the examples:
+
+```python
+#!/usr/bin/env python3
+import sys
+sys.path.append('src')
+from src import ScamDetectionEvaluator
+
+def custom_eval():
+    # Customize these parameters
+    dataset_path = "data/cleaned/your_dataset.csv"
+    provider = "openai"
+    model = "gpt-4"
+    sample_size = 100
+    
+    evaluator = ScamDetectionEvaluator(
+        dataset_path=dataset_path,
+        provider=provider,
+        model=model,
+        sample_size=sample_size,
+        random_state=42,
+        content_columns=['your_content_column'],  # Specify your content columns
+        balanced_sample=False
+    )
+    
+    # Run complete evaluation
+    results = evaluator.run_full_evaluation()
+    print("✓ Evaluation completed successfully!")
+
+if __name__ == "__main__":
+    custom_eval()
+```
+
+### Advanced Usage
 
 ```python
 from src import ScamDetectionEvaluator
 
-# Use all available content features
-evaluator = ScamDetectionEvaluator(
-    dataset_path='your_dataset.csv',
-    provider='openai',
-    model='gpt-4.1',
-    sample_size=100,
-    random_state=42
-)
-
-# Run complete evaluation
-results = evaluator.run_full_evaluation()
-```
-
-### Advanced Usage - Specify Content Columns
-
-```python
-# Only use specific columns as content
-evaluator = ScamDetectionEvaluator(
-    dataset_path='your_dataset.csv',
-    provider='openai',
-    model='gpt-4.1',
-    sample_size=100,
-    content_columns=['body']  # eg. Only use body
-)
-
-results = evaluator.run_full_evaluation()
-```
-
-### Step-by-Step Execution
-
-```python
 # Manual control over each step
 evaluator = ScamDetectionEvaluator(
-    dataset_path='data.csv',
+    dataset_path='data/cleaned/your_dataset.csv',
     provider='openai',
     model='gpt-4',
     sample_size=100,
