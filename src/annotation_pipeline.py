@@ -22,7 +22,7 @@ current_dir = Path(__file__).parent
 sys.path.insert(0, str(current_dir))
 
 from api_provider import LLM
-from api_call import make_api_call
+from api_call import make_api_call, parse_structured_output
 from data_loader import DatasetLoader
 from results_saver import ResultsSaver
 from pydantic import BaseModel
@@ -31,6 +31,7 @@ class AnnotationResponseSchema(BaseModel):
     explanation: str
     key_indicators: List[str]
     confidence: str  # "high", "medium", "low"
+    usability: bool  # True if data is meaningful, False if not meaningful/nonsensical
 
 class AnnotationPromptGenerator:
     """Generate prompts for annotation tasks"""
@@ -55,6 +56,7 @@ Your job is to explain WHY this classification is correct by:
 - Explaining the reasoning in an educational manner
 - Highlighting specific techniques or patterns used (for scams) or trust signals (for legitimate content)
 - Providing insights that would help someone learn to identify similar cases
+- Assessing whether the content is meaningful and usable for analysis (**Do not include explanation for usability in your finalresponse**)
 
 Guidelines:
 - Be thorough but concise in your explanations
@@ -62,11 +64,13 @@ Guidelines:
 - For scams: explain the deception techniques, red flags, and malicious intent
 - For legitimate content: explain trust indicators and why it's genuine
 - Always be educational and help build detection skills
+- Evaluate if the content makes sense and is meaningful for analysis
 
 Respond with:
 - explanation: A detailed explanation of why this content has the given classification
 - key_indicators: A list of specific indicators/features that support the classification
 - confidence: Your confidence level in the explanation ("high", "medium", "low")
+- usability: True if the content is meaningful and makes sense for analysis, False if the content is nonsensical, corrupted, or not meaningful
 """
     
     def create_annotation_prompt(self, row: Dict[str, Any], correct_label: str) -> str:
@@ -104,7 +108,9 @@ class LLMAnnotationPipeline:
                  balanced_sample: bool = False,
                  random_state: int = 42,
                  content_columns: Optional[List[str]] = None,
-                 output_dir: str = "annotations"):
+                 output_dir: str = "annotations",
+                 enable_thinking: bool = False,
+                 use_structure_model: bool = False):
         """
         Initialize the annotation pipeline
         
@@ -117,6 +123,8 @@ class LLMAnnotationPipeline:
             random_state: Random seed for reproducibility
             content_columns: List of column names to use as content for annotation
             output_dir: Directory to save annotation results
+            enable_thinking: Whether to enable thinking tokens in prompts
+            use_structure_model: Whether to use a separate structure model for parsing
         """
         self.dataset_path = dataset_path
         self.provider = provider
@@ -126,11 +134,14 @@ class LLMAnnotationPipeline:
         self.random_state = random_state
         self.content_columns = content_columns
         self.output_dir = output_dir
+        self.enable_thinking = enable_thinking
+        self.use_structure_model = use_structure_model
         
         # Initialize components
         self.data_loader = DatasetLoader(dataset_path)
         self.llm_instance = None
         self.llm = None
+        self.structure_model = None
         self.prompt_generator = None
         self.annotations = []
         
@@ -139,6 +150,8 @@ class LLMAnnotationPipeline:
         try:
             self.llm_instance = LLM(provider=self.provider, model=self.model)
             self.llm = self.llm_instance.get_llm()
+            if self.use_structure_model:
+                self.structure_model = self.llm_instance.get_structure_model(provider='lm-studio')
             print(f"LLM initialized successfully: {self.provider} - {self.model}")
         except Exception as e:
             raise Exception(f"Error initializing LLM: {e}")
@@ -203,21 +216,33 @@ class LLMAnnotationPipeline:
             user_prompt = self.prompt_generator.create_annotation_prompt(row.to_dict(), str(row['label']))
             
             try:
-                # Make API call with custom structured output for annotations
-                prompt_template = self._get_annotation_prompt_template()
-                messages = prompt_template.invoke({"system_prompt": system_prompt, "user_prompt": user_prompt})
-                client = self.llm.with_structured_output(AnnotationResponseSchema)
-                response = client.invoke(messages)
+                if self.use_structure_model:
+                    # Make API call
+                    response = make_api_call(self.llm, system_prompt, user_prompt, enable_thinking=self.enable_thinking, structure_model=True)
+                    # Remove thinking tokens if they exist
+                    if self.enable_thinking or ('<think>' in response and '</think>' in response):
+                        import re
+                        # Remove everything between <think> and </think> tags
+                        response = re.sub(r'<think>.*?</think>', '', response, flags=re.DOTALL).strip()
+                    response = parse_structured_output(self.structure_model, response, AnnotationResponseSchema)
+                else:
+                    # Make API call with custom structured output for annotations
+                    prompt_template = self._get_annotation_prompt_template()
+                    messages = prompt_template.invoke({"system_prompt": system_prompt, "user_prompt": user_prompt})
+                    client = self.llm.with_structured_output(AnnotationResponseSchema)
+                    response = client.invoke(messages)
                 
                 # Create comprehensive annotation record
                 annotation = self._create_annotation_record(i+1, row, response)
                 annotations.append(annotation)
                 
                 actual_class = 'Scam' if row['label'] == 1 else 'Legitimate'
-                print(f"  Class: {actual_class}")
-                print(f"  Confidence: {response.confidence}")
-                print(f"  Key indicators: {len(response.key_indicators)}")
-                print(f"  Explanation length: {len(response.explanation)} chars")
+                usability_status = 'Usable' if response.usability == 1 else 'Not usable'
+                print(f"Class: {actual_class}")
+                print(f"Confidence: {response.confidence}")
+                print(f"Usability: {usability_status}")
+                print(f"Key indicators: {len(response.key_indicators)}")
+                print(f"Explanation length: {len(response.explanation)} chars")
                 
             except Exception as e:
                 print(f"  Error annotating record {i+1}: {e}")
@@ -248,6 +273,7 @@ class LLMAnnotationPipeline:
             'explanation': response.explanation,
             'key_indicators': response.key_indicators,
             'confidence': response.confidence,
+            'usability': response.usability,
             'annotation_timestamp': pd.Timestamp.now().isoformat()
         }
         
@@ -271,6 +297,7 @@ class LLMAnnotationPipeline:
             'explanation': f'Error during annotation: {error_message}',
             'key_indicators': [],
             'confidence': 'error',
+            'usability': 0,  # Default to not usable for error cases
             'annotation_timestamp': pd.Timestamp.now().isoformat()
         }
         
@@ -335,6 +362,13 @@ class LLMAnnotationPipeline:
             cls = annotation['class']
             class_dist[cls] = class_dist.get(cls, 0) + 1
         
+        # Usability distribution
+        usability_dist = {}
+        for annotation in self.annotations:
+            usability = annotation.get('usability', 0)
+            usability_key = 'Usable' if usability == 1 else 'Not usable'
+            usability_dist[usability_key] = usability_dist.get(usability_key, 0) + 1
+        
         # Average indicators per class
         scam_indicators = [len(a['key_indicators']) for a in self.annotations if a['class'] == 'Scam' and a['confidence'] != 'error']
         legit_indicators = [len(a['key_indicators']) for a in self.annotations if a['class'] == 'Legitimate' and a['confidence'] != 'error']
@@ -368,6 +402,7 @@ class LLMAnnotationPipeline:
             },
             'confidence_distribution': confidence_dist,
             'class_distribution': class_dist,
+            'usability_distribution': usability_dist,
             'indicator_statistics': {
                 'avg_indicators_scam': sum(scam_indicators) / len(scam_indicators) if scam_indicators else 0,
                 'avg_indicators_legitimate': sum(legit_indicators) / len(legit_indicators) if legit_indicators else 0,
@@ -386,6 +421,9 @@ class LLMAnnotationPipeline:
         print(f"- Total records: {total_annotations}")
         print(f"- Successful annotations: {successful_annotations}")
         print(f"- Success rate: {summary['annotation_results']['success_rate']:.2%}")
+        print(f"- Usable records: {usability_dist.get('Usable', 0)}")
+        print(f"- Not usable records: {usability_dist.get('Not usable', 0)}")
+        print(f"- Usability rate: {usability_dist.get('Usable', 0) / total_annotations:.2%}" if total_annotations > 0 else "- Usability rate: 0%")
         
         return summary_path
     
@@ -480,6 +518,18 @@ def parse_arguments():
         help='Directory for output results (default: annotations)'
     )
     
+    parser.add_argument(
+        '--enable-thinking',
+        action='store_true',
+        help='Enable thinking tokens in prompts'
+    )
+    
+    parser.add_argument(
+        '--use-structure-model',
+        action='store_true',
+        help='Use a separate structure model for parsing responses'
+    )
+    
     return parser.parse_args()
 
 def validate_dataset(dataset_path: str):
@@ -518,6 +568,8 @@ def main():
         else:
             print(f"Content columns: All non-label columns")
         print(f"Output directory: {args.output_dir}")
+        print(f"Enable thinking: {args.enable_thinking}")
+        print(f"Use structure model: {args.use_structure_model}")
         
         # Validate dataset
         print(f"\nValidating dataset...")
@@ -532,7 +584,9 @@ def main():
             balanced_sample=args.balanced_sample,
             random_state=args.random_state,
             content_columns=args.content_columns,
-            output_dir=args.output_dir
+            output_dir=args.output_dir,
+            enable_thinking=args.enable_thinking,
+            use_structure_model=args.use_structure_model
         )
         
         # Run full annotation

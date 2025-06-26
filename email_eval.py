@@ -21,8 +21,8 @@ def email_eval():
     
     dataset_path = "data/cleaned/unified_phishing_email_dataset.csv"
     provider = "lm-studio"
-    model = "qwen3-235b-a22b-128k"
-    sample_size = 500
+    model = "unsloth/qwen3-30b-a3b"
+    sample_size = 5
     
     if not Path(dataset_path).exists():
         print(f"Dataset not found: {dataset_path}")
@@ -37,7 +37,9 @@ def email_eval():
             model=model,
             sample_size=sample_size,
             random_state=42,
-            content_columns=['subject', 'body']
+            content_columns=['subject', 'body'],
+            use_structure_model=True,
+            enable_thinking=True
         )
         
         # Run evaluation

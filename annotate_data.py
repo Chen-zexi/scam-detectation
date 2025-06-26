@@ -20,10 +20,10 @@ def annotation():
     print("ANNOTATION: Generating explanations for scam/legitimate classifications")
     print("="*80)
     
-    dataset_path = "data/cleaned/unified_error_dataset/unified_error_dataset.csv"
+    dataset_path = "data/cleaned/unified_phishing_email_dataset.csv"
     provider = "lm-studio"
-    model = "unsloth/qwen3-235b-a22b"
-    sample_size = 2540
+    model = "unsloth/qwen3-30b-a3b"
+    sample_size = 10000
     
     if not Path(dataset_path).exists():
         print(f"Dataset not found: {dataset_path}")
@@ -38,9 +38,11 @@ def annotation():
             model=model,
             sample_size=sample_size,
             random_state=42,
-            content_columns=['content'],
-            balanced_sample=False,
-            output_dir="results/annotated"
+            content_columns=['subject', 'body'],
+            balanced_sample=True,
+            output_dir="results/annotated",
+            enable_thinking=False,
+            use_structure_model=False
         )
         
         # Run annotation

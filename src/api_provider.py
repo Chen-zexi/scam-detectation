@@ -48,3 +48,18 @@ class LLM:
         else:
             raise ValueError(f"Unsupported provider: {self.provider}")
         
+    def get_structure_model(self, provider: str):
+        if provider == "lm-studio":
+            host_ip = os.getenv("HOST_IP")
+            if not host_ip:
+                raise ValueError("HOST_IP is not set")
+            return ChatOpenAI(base_url=f"http://{host_ip}:1234/v1", api_key='lm-studio', model='osmosis-structure-0.6b@f16', temperature=0)
+        elif provider == "vllm":
+            # Assume using lm-studio
+            host_ip = os.getenv("HOST_IP")
+            if not host_ip:
+                raise ValueError("HOST_IP is not set")
+            print(f"http://{host_ip}:8000/v1")
+            return ChatOpenAI(base_url=f"http://{host_ip}:8000/v1", api_key='EMPTY', model='osmosis-structure-0.6b@f16', temperature=0)
+        else:
+            raise ValueError(f"Unsupported provider: {provider}")

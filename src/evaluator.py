@@ -1,7 +1,7 @@
 import pandas as pd
 from typing import List, Dict, Any, Optional
 from api_provider import LLM
-from api_call import make_api_call
+from api_call import make_api_call, parse_structured_output
 from data_loader import DatasetLoader
 from prompt_generator import PromptGenerator
 from metrics_calculator import MetricsCalculator
@@ -20,7 +20,9 @@ class ScamDetectionEvaluator:
                  sample_size: int = 100,
                  balanced_sample: bool = False,
                  random_state: int = 42,
-                 content_columns: Optional[List[str]] = None):
+                 enable_thinking: bool = False,
+                 content_columns: Optional[List[str]] = None,
+                 use_structure_model: bool = False):
         """
         Initialize the evaluator with dataset and model configuration
         
@@ -46,14 +48,19 @@ class ScamDetectionEvaluator:
         self.data_loader = DatasetLoader(dataset_path)
         self.llm_instance = None
         self.llm = None
+        self.structure_model = None
         self.prompt_generator = None
         self.results = []
+        self.use_structure_model = use_structure_model
+        self.enable_thinking = enable_thinking
         
     def setup_llm(self):
         """Initialize the LLM"""
         try:
             self.llm_instance = LLM(provider=self.provider, model=self.model)
             self.llm = self.llm_instance.get_llm()
+            if self.use_structure_model:
+                self.structure_model = self.llm_instance.get_structure_model(provider='lm-studio')
             print(f"LLM initialized successfully: {self.provider} - {self.model}")
         except Exception as e:
             raise Exception(f"Error initializing LLM: {e}")
@@ -118,8 +125,22 @@ class ScamDetectionEvaluator:
             user_prompt = self.prompt_generator.create_user_prompt(row.to_dict())
             
             try:
-                # Make API call
-                response = make_api_call(self.llm, system_prompt, user_prompt)
+                if self.use_structure_model:
+                    # Make API call
+                    response = make_api_call(self.llm, system_prompt, user_prompt, enable_thinking=self.enable_thinking, structure_model=True)
+                    
+                    # Remove thinking tokens if they exist
+                    if self.enable_thinking or ('<think>' in response and '</think>' in response):
+                        import re
+                        # Remove everything between <think> and </think> tags
+                        response = re.sub(r'<think>.*?</think>', '', response, flags=re.DOTALL).strip()
+                        print(f'Response after removing thinking tokens: {response}')
+                    
+                    response = parse_structured_output(self.structure_model, response)
+                    print(f'\nParsed response: {response}')
+                else:
+                    # Make API call
+                    response = make_api_call(self.llm, system_prompt, user_prompt, structure_model=False)
                 
                 # Extract prediction
                 predicted_scam = response.Phishing  # Note: API still uses "Phishing" key for compatibility

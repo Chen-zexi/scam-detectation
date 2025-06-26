@@ -92,6 +92,18 @@ def parse_arguments():
         help='Run without making API calls (for testing setup)'
     )
     
+    parser.add_argument(
+        '--use-structure-model',
+        action='store_true',
+        help='Use structure model for evaluation'
+    )
+    
+    parser.add_argument(
+        '--enable-thinking',
+        action='store_true',
+        help='Enable thinking for evaluation'
+    )
+    
     return parser.parse_args()
 
 def validate_dataset(dataset_path: str):
@@ -147,7 +159,9 @@ def main():
             sample_size=args.sample_size,
             balanced_sample=args.balanced_sample,
             random_state=args.random_state,
-            content_columns=args.content_columns
+            content_columns=args.content_columns,
+            use_structure_model=args.use_structure_model,
+            enable_thinking=args.enable_thinking
         )
         
         # Run full evaluation
