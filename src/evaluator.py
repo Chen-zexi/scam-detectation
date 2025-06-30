@@ -1,11 +1,13 @@
 import pandas as pd
 from typing import List, Dict, Any, Optional
 from api_provider import LLM
-from api_call import make_api_call, parse_structured_output
+from api_call import make_api_call, parse_structured_output, make_api_call_async, parse_structured_output_async
 from data_loader import DatasetLoader
 from prompt_generator import PromptGenerator
 from metrics_calculator import MetricsCalculator
 from results_saver import ResultsSaver
+import asyncio
+import time
 
 class ScamDetectionEvaluator:
     """
@@ -168,6 +170,109 @@ class ScamDetectionEvaluator:
         self.results = results
         print(f"\nEvaluation completed. Processed {len(results)} records.")
         return results
+
+    async def evaluate_sample_async(self, sample_df: pd.DataFrame, concurrent_requests: int = 10) -> List[Dict[str, Any]]:
+        """
+        Evaluate the sample dataset using the LLM with concurrent requests
+        
+        Args:
+            sample_df: Sample dataframe to evaluate
+            concurrent_requests: Number of concurrent requests to make (default: 10)
+            
+        Returns:
+            List of evaluation results
+        """
+        if self.llm is None:
+            raise ValueError("LLM not initialized. Call setup_llm() first.")
+        
+        if self.prompt_generator is None:
+            raise ValueError("Prompt generator not initialized. Call load_and_prepare_data() first.")
+        
+        system_prompt = self.prompt_generator.get_system_prompt()
+        
+        print("\n" + "="*80)
+        print("STARTING SCAM DETECTION EVALUATION (ASYNC)")
+        print(f"Concurrent requests: {concurrent_requests}")
+        print("="*80)
+        
+        # Create semaphore to limit concurrent requests
+        semaphore = asyncio.Semaphore(concurrent_requests)
+        
+        async def evaluate_single_record(i: int, row: pd.Series) -> Dict[str, Any]:
+            async with semaphore:
+                print(f"Evaluating record {i+1}/{len(sample_df)}...")
+                
+                # Create user prompt with specified content features
+                user_prompt = self.prompt_generator.create_user_prompt(row.to_dict())
+                
+                try:
+                    if self.use_structure_model:
+                        # Make async API call
+                        response = await make_api_call_async(self.llm, system_prompt, user_prompt, 
+                                                           enable_thinking=self.enable_thinking, structure_model=True)
+                        
+                        # Remove thinking tokens if they exist
+                        if self.enable_thinking or ('<think>' in response and '</think>' in response):
+                            import re
+                            # Remove everything between <think> and </think> tags
+                            response = re.sub(r'<think>.*?</think>', '', response, flags=re.DOTALL).strip()
+                            print(f'Response after removing thinking tokens: {response}')
+                        
+                        response = await parse_structured_output_async(self.structure_model, response)
+                        print(f'\nParsed response: {response}')
+                    else:
+                        # Make async API call
+                        response = await make_api_call_async(self.llm, system_prompt, user_prompt, structure_model=False)
+                    
+                    # Extract prediction
+                    predicted_scam = response.Phishing  # Note: API still uses "Phishing" key for compatibility
+                    predicted_label = 1 if predicted_scam else 0
+                    actual_label = row['label']
+                    
+                    # Calculate if prediction is correct
+                    is_correct = predicted_label == actual_label
+                    
+                    # Create comprehensive result record
+                    result = self._create_result_record(row, predicted_label, is_correct, response.Reason)
+                    
+                    print(f"Record {i+1} - Actual: {'Scam' if actual_label == 1 else 'Legitimate'}, "
+                          f"Predicted: {'Scam' if predicted_label == 1 else 'Legitimate'}, Correct: {is_correct}")
+                    
+                    return result
+                    
+                except Exception as e:
+                    print(f"  Error processing record {i+1}: {e}")
+                    result = self._create_error_result_record(row, str(e))
+                    return result
+        
+        # Create tasks for all records
+        tasks = []
+        for i, (_, row) in enumerate(sample_df.iterrows()):
+            task = evaluate_single_record(i, row)
+            tasks.append(task)
+        
+        # Execute all tasks concurrently
+        start_time = time.time()
+        results = await asyncio.gather(*tasks, return_exceptions=False)
+        end_time = time.time()
+        
+        # Handle any exceptions that might have been returned
+        valid_results = []
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                print(f"Exception in record {i+1}: {result}")
+                # Create error record
+                row = sample_df.iloc[i]
+                error_result = self._create_error_result_record(row, str(result))
+                valid_results.append(error_result)
+            else:
+                valid_results.append(result)
+        
+        self.results = valid_results
+        total_time = end_time - start_time
+        print(f"\nAsync evaluation completed in {total_time:.2f} seconds. Processed {len(valid_results)} records.")
+        print(f"Average time per record: {total_time/len(valid_results):.2f} seconds")
+        return valid_results
     
     def _create_result_record(self, 
                              row: pd.Series, 
@@ -294,6 +399,51 @@ class ScamDetectionEvaluator:
         
         print("\n" + "="*80)
         print("EVALUATION COMPLETED SUCCESSFULLY")
+        print("="*80)
+        
+        return {
+            'results': results,
+            'metrics': metrics,
+            'save_paths': save_paths,
+            'dataset_info': self.data_loader.get_dataset_info()
+        }
+
+    async def run_full_evaluation_async(self, concurrent_requests: int = 10) -> Dict[str, Any]:
+        """
+        Run complete evaluation pipeline asynchronously: setup -> load -> evaluate -> calculate -> save
+        
+        Args:
+            concurrent_requests: Number of concurrent requests to make (default: 10)
+            
+        Returns:
+            Dictionary with evaluation results and file paths
+        """
+        print("="*80)
+        print("SCAM DETECTION EVALUATION PIPELINE (ASYNC)")
+        print("="*80)
+        
+        # Setup LLM
+        print("\n1. Setting up LLM...")
+        self.setup_llm()
+        
+        # Load and prepare data
+        print("\n2. Loading and preparing data...")
+        sample_df = self.load_and_prepare_data()
+        
+        # Run evaluation asynchronously
+        print("\n3. Running evaluation asynchronously...")
+        results = await self.evaluate_sample_async(sample_df, concurrent_requests)
+        
+        # Calculate metrics
+        print("\n4. Calculating metrics...")
+        metrics = self.calculate_metrics()
+        
+        # Save results
+        print("\n5. Saving results...")
+        save_paths = self.save_results()
+        
+        print("\n" + "="*80)
+        print("ASYNC EVALUATION COMPLETED SUCCESSFULLY")
         print("="*80)
         
         return {

@@ -16,13 +16,15 @@ import os
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 import pandas as pd
+import asyncio
+import time
 
 # Add current directory to Python path to allow imports
 current_dir = Path(__file__).parent
 sys.path.insert(0, str(current_dir))
 
 from api_provider import LLM
-from api_call import make_api_call, parse_structured_output
+from api_call import make_api_call, parse_structured_output, make_api_call_async, parse_structured_output_async
 from data_loader import DatasetLoader
 from results_saver import ResultsSaver
 from pydantic import BaseModel
@@ -252,6 +254,102 @@ class LLMAnnotationPipeline:
         self.annotations = annotations
         print(f"\nAnnotation completed. Processed {len(annotations)} records.")
         return annotations
+
+    async def annotate_sample_async(self, sample_df: pd.DataFrame, concurrent_requests: int = 10) -> List[Dict[str, Any]]:
+        """
+        Annotate the sample dataset using the LLM with concurrent requests
+        
+        Args:
+            sample_df: Sample dataframe to annotate
+            concurrent_requests: Number of concurrent requests to make (default: 10)
+            
+        Returns:
+            List of annotation results
+        """
+        if self.llm is None:
+            raise ValueError("LLM not initialized. Call setup_llm() first.")
+        
+        if self.prompt_generator is None:
+            raise ValueError("Prompt generator not initialized. Call load_and_prepare_data() first.")
+        
+        system_prompt = self.prompt_generator.get_system_prompt()
+        
+        print("\n" + "="*80)
+        print("STARTING LLM ANNOTATION PROCESS (ASYNC)")
+        print(f"Concurrent requests: {concurrent_requests}")
+        print("="*80)
+        
+        # Create semaphore to limit concurrent requests
+        semaphore = asyncio.Semaphore(concurrent_requests)
+        
+        async def annotate_single_record(i: int, row: pd.Series) -> Dict[str, Any]:
+            async with semaphore:
+                print(f"Annotating record {i+1}/{len(sample_df)}...")
+                
+                # Create annotation prompt with correct label
+                user_prompt = self.prompt_generator.create_annotation_prompt(row.to_dict(), str(row['label']))
+                
+                try:
+                    if self.use_structure_model:
+                        # Make async API call
+                        response = await make_api_call_async(self.llm, system_prompt, user_prompt, 
+                                                           enable_thinking=self.enable_thinking, structure_model=True)
+                        # Remove thinking tokens if they exist
+                        if self.enable_thinking or ('<think>' in response and '</think>' in response):
+                            import re
+                            # Remove everything between <think> and </think> tags
+                            response = re.sub(r'<think>.*?</think>', '', response, flags=re.DOTALL).strip()
+                        response = await parse_structured_output_async(self.structure_model, response, AnnotationResponseSchema)
+                    else:
+                        # Make async API call with custom structured output for annotations
+                        prompt_template = self._get_annotation_prompt_template()
+                        messages = prompt_template.invoke({"system_prompt": system_prompt, "user_prompt": user_prompt})
+                        client = self.llm.with_structured_output(AnnotationResponseSchema)
+                        response = await client.ainvoke(messages)
+                    
+                    # Create comprehensive annotation record
+                    annotation = self._create_annotation_record(i+1, row, response)
+                    
+                    actual_class = 'Scam' if row['label'] == 1 else 'Legitimate'
+                    usability_status = 'Usable' if response.usability == 1 else 'Not usable'
+                    print(f"Record {i+1} - Class: {actual_class}, Confidence: {response.confidence}, "
+                          f"Usability: {usability_status}, Indicators: {len(response.key_indicators)}")
+                    
+                    return annotation
+                    
+                except Exception as e:
+                    print(f"  Error annotating record {i+1}: {e}")
+                    annotation = self._create_error_annotation_record(i+1, row, str(e))
+                    return annotation
+        
+        # Create tasks for all records
+        tasks = []
+        for i, (_, row) in enumerate(sample_df.iterrows()):
+            task = annotate_single_record(i, row)
+            tasks.append(task)
+        
+        # Execute all tasks concurrently
+        start_time = time.time()
+        annotations = await asyncio.gather(*tasks, return_exceptions=False)
+        end_time = time.time()
+        
+        # Handle any exceptions that might have been returned
+        valid_annotations = []
+        for i, annotation in enumerate(annotations):
+            if isinstance(annotation, Exception):
+                print(f"Exception in record {i+1}: {annotation}")
+                # Create error record
+                row = sample_df.iloc[i]
+                error_annotation = self._create_error_annotation_record(i+1, row, str(annotation))
+                valid_annotations.append(error_annotation)
+            else:
+                valid_annotations.append(annotation)
+        
+        self.annotations = valid_annotations
+        total_time = end_time - start_time
+        print(f"\nAsync annotation completed in {total_time:.2f} seconds. Processed {len(valid_annotations)} records.")
+        print(f"Average time per record: {total_time/len(valid_annotations):.2f} seconds")
+        return valid_annotations
     
     def _get_annotation_prompt_template(self):
         """Get prompt template for annotations"""
@@ -439,6 +537,32 @@ class LLMAnnotationPipeline:
         
         # Run annotation
         annotations = self.annotate_sample(sample_df)
+        
+        # Save results
+        save_paths = self.save_annotations()
+        
+        return {
+            'annotations': annotations,
+            'save_paths': save_paths,
+            'summary': {
+                'total_records': len(annotations),
+                'successful_annotations': len([a for a in annotations if a['confidence'] != 'error']),
+                'dataset_name': self.data_loader.dataset_name
+            }
+        }
+
+    async def run_full_annotation_async(self, concurrent_requests: int = 10) -> Dict[str, Any]:
+        """Run the complete annotation pipeline asynchronously"""
+        print("Starting LLM Annotation Pipeline (Async)...")
+        
+        # Setup LLM
+        self.setup_llm()
+        
+        # Load and prepare data
+        sample_df = self.load_and_prepare_data()
+        
+        # Run annotation asynchronously
+        annotations = await self.annotate_sample_async(sample_df, concurrent_requests)
         
         # Save results
         save_paths = self.save_annotations()

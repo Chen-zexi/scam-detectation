@@ -3,12 +3,13 @@ import pandas as pd
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from api_provider import LLM
-from api_call import make_api_call
+from api_call import make_api_call, make_api_call_async
 from data_loader import DatasetLoader
 from prompt_generator import PromptGenerator
 from results_saver import ResultsSaver
 import tiktoken
 import json
+import asyncio
 
 @dataclass
 class PerformanceMetrics:
@@ -231,6 +232,139 @@ class PerformanceEvaluator:
                 model_results.append(metric)
                 
         return model_results
+
+    async def evaluate_model_performance_async(self, 
+                                             provider: str, 
+                                             model: str,
+                                             prompts: Optional[List[Dict[str, str]]] = None,
+                                             concurrent_requests: int = 10) -> List[PerformanceMetrics]:
+        """
+        Evaluate performance for a single model asynchronously
+        
+        Args:
+            provider: LLM provider name
+            model: Model name
+            prompts: List of prompts (optional - will use synthetic if None)
+            concurrent_requests: Number of concurrent requests to make (default: 10)
+            
+        Returns:
+            List of performance metrics
+        """
+        if prompts is None:
+            if self.dataset_path:
+                prompts = self._prepare_prompts_from_dataset()
+            else:
+                prompts = self._create_synthetic_prompts()
+        
+        print(f"\nEvaluating {provider} - {model} (Async)")
+        print(f"Testing with {len(prompts)} prompts using {concurrent_requests} concurrent requests...")
+        
+        # Initialize LLM
+        try:
+            llm_instance = LLM(provider=provider, model=model)
+            llm = llm_instance.get_llm()
+        except Exception as e:
+            print(f"Failed to initialize {provider} - {model}: {e}")
+            return []
+        
+        # Create semaphore to limit concurrent requests
+        semaphore = asyncio.Semaphore(concurrent_requests)
+        
+        async def process_single_prompt(i: int, prompt: Dict[str, str]) -> PerformanceMetrics:
+            async with semaphore:
+                print(f"  Processing prompt {i+1}/{len(prompts)}...", end=" ")
+                
+                try:
+                    # Estimate input tokens
+                    input_text = prompt["system"] + "\n" + prompt["user"]
+                    input_tokens = self._estimate_tokens(input_text, model)
+                    
+                    # Time the API call
+                    start_time = time.time()
+                    response = await make_api_call_async(llm, prompt["system"], prompt["user"])
+                    end_time = time.time()
+                    
+                    response_time = end_time - start_time
+                    
+                    # Estimate output tokens
+                    output_text = str(response.Reason) if hasattr(response, 'Reason') else str(response)
+                    output_tokens = self._estimate_tokens(output_text, model)
+                    total_tokens = input_tokens + output_tokens
+                    
+                    # Calculate tokens per second
+                    tokens_per_second = total_tokens / response_time if response_time > 0 else 0
+                    
+                    # Create performance metric
+                    metric = PerformanceMetrics(
+                        provider=provider,
+                        model=model,
+                        response_time=response_time,
+                        input_tokens=input_tokens,
+                        output_tokens=output_tokens,
+                        total_tokens=total_tokens,
+                        tokens_per_second=tokens_per_second,
+                        success=True
+                    )
+                    
+                    print(f"✓ {response_time:.2f}s, {tokens_per_second:.1f} tok/s")
+                    return metric
+                    
+                except Exception as e:
+                    print(f"✗ Error: {e}")
+                    metric = PerformanceMetrics(
+                        provider=provider,
+                        model=model,
+                        response_time=0,
+                        input_tokens=0,
+                        output_tokens=0,
+                        total_tokens=0,
+                        tokens_per_second=0,
+                        success=False,
+                        error_message=str(e)
+                    )
+                    return metric
+        
+        # Create tasks for all prompts
+        tasks = []
+        for i, prompt in enumerate(prompts):
+            task = process_single_prompt(i, prompt)
+            tasks.append(task)
+        
+        # Execute all tasks concurrently
+        start_time = time.time()
+        model_results = await asyncio.gather(*tasks, return_exceptions=False)
+        end_time = time.time()
+        
+        # Handle any exceptions that might have been returned
+        valid_results = []
+        for i, result in enumerate(model_results):
+            if isinstance(result, Exception):
+                print(f"Exception in prompt {i+1}: {result}")
+                # Create error metric
+                error_metric = PerformanceMetrics(
+                    provider=provider,
+                    model=model,
+                    response_time=0,
+                    input_tokens=0,
+                    output_tokens=0,
+                    total_tokens=0,
+                    tokens_per_second=0,
+                    success=False,
+                    error_message=str(result)
+                )
+                valid_results.append(error_metric)
+            else:
+                valid_results.append(result)
+        
+        total_time = end_time - start_time
+        successful_results = [r for r in valid_results if r.success]
+        print(f"\nAsync performance evaluation completed in {total_time:.2f} seconds.")
+        print(f"Successful requests: {len(successful_results)}/{len(valid_results)}")
+        if successful_results:
+            avg_tokens_per_sec = sum(r.tokens_per_second for r in successful_results) / len(successful_results)
+            print(f"Average tokens/second: {avg_tokens_per_sec:.1f}")
+        
+        return valid_results
     
     def evaluate_multiple_models(self, model_configs: List[Dict[str, str]]) -> Dict[str, List[PerformanceMetrics]]:
         """

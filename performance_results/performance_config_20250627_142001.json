@@ -1,0 +1,9 @@
+{
+  "timestamp": "20250627_142001",
+  "sample_size": 5,
+  "dataset_path": null,
+  "content_columns": null,
+  "models_tested": [
+    "vllm_Qwen/Qwen3-30B-A3B"
+  ]
+}
