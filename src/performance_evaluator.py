@@ -7,7 +7,6 @@ from api_call import make_api_call, make_api_call_async
 from data_loader import DatasetLoader
 from prompt_generator import PromptGenerator
 from results_saver import ResultsSaver
-import tiktoken
 import json
 import asyncio
 
@@ -17,11 +16,8 @@ class PerformanceMetrics:
     provider: str
     model: str
     response_time: float  # seconds
-    input_tokens: int
-    output_tokens: int
-    total_tokens: int
-    tokens_per_second: float
     success: bool
+    prompt_category: str = "unknown"  # short, medium, long, dataset
     error_message: Optional[str] = None
 
 class PerformanceEvaluator:
@@ -55,30 +51,7 @@ class PerformanceEvaluator:
         else:
             self.data_loader = None
             
-    def _estimate_tokens(self, text: str, model: str = "gpt-4") -> int:
-        """
-        Estimate token count for text using tiktoken
-        
-        Args:
-            text: Input text
-            model: Model name for tokenizer selection
-            
-        Returns:
-            Estimated token count
-        """
-        try:
-            # Map model names to tiktoken encodings
-            if "gpt-4" in model.lower() or "gpt-3.5" in model.lower():
-                encoding = tiktoken.encoding_for_model("gpt-4")
-            elif "claude" in model.lower():
-                encoding = tiktoken.encoding_for_model("text-davinci-003")
-            else:
-                encoding = tiktoken.encoding_for_model("text-davinci-003")
-                
-            return len(encoding.encode(text))
-        except Exception:
-            # Fallback: rough estimation
-            return len(text.split()) * 1.3
+
     
     def _create_synthetic_prompts(self) -> List[Dict[str, str]]:
         """Create synthetic test prompts of varying lengths"""
@@ -182,10 +155,6 @@ class PerformanceEvaluator:
             print(f"  Processing prompt {i+1}/{len(prompts)}...", end=" ")
             
             try:
-                # Estimate input tokens
-                input_text = prompt["system"] + "\n" + prompt["user"]
-                input_tokens = self._estimate_tokens(input_text, model)
-                
                 # Time the API call
                 start_time = time.time()
                 response = make_api_call(llm, prompt["system"], prompt["user"])
@@ -193,28 +162,17 @@ class PerformanceEvaluator:
                 
                 response_time = end_time - start_time
                 
-                # Estimate output tokens
-                output_text = str(response.Reason) if hasattr(response, 'Reason') else str(response)
-                output_tokens = self._estimate_tokens(output_text, model)
-                total_tokens = input_tokens + output_tokens
-                
-                # Calculate tokens per second
-                tokens_per_second = total_tokens / response_time if response_time > 0 else 0
-                
                 # Create performance metric
                 metric = PerformanceMetrics(
                     provider=provider,
                     model=model,
                     response_time=response_time,
-                    input_tokens=input_tokens,
-                    output_tokens=output_tokens,
-                    total_tokens=total_tokens,
-                    tokens_per_second=tokens_per_second,
-                    success=True
+                    success=True,
+                    prompt_category=prompt.get("category", "unknown")
                 )
                 
                 model_results.append(metric)
-                print(f"✓ {response_time:.2f}s, {tokens_per_second:.1f} tok/s")
+                print(f"✓ {response_time:.2f}s")
                 
             except Exception as e:
                 print(f"✗ Error: {e}")
@@ -222,11 +180,8 @@ class PerformanceEvaluator:
                     provider=provider,
                     model=model,
                     response_time=0,
-                    input_tokens=0,
-                    output_tokens=0,
-                    total_tokens=0,
-                    tokens_per_second=0,
                     success=False,
+                    prompt_category=prompt.get("category", "unknown"),
                     error_message=str(e)
                 )
                 model_results.append(metric)
@@ -275,10 +230,6 @@ class PerformanceEvaluator:
                 print(f"  Processing prompt {i+1}/{len(prompts)}...", end=" ")
                 
                 try:
-                    # Estimate input tokens
-                    input_text = prompt["system"] + "\n" + prompt["user"]
-                    input_tokens = self._estimate_tokens(input_text, model)
-                    
                     # Time the API call
                     start_time = time.time()
                     response = await make_api_call_async(llm, prompt["system"], prompt["user"])
@@ -286,27 +237,16 @@ class PerformanceEvaluator:
                     
                     response_time = end_time - start_time
                     
-                    # Estimate output tokens
-                    output_text = str(response.Reason) if hasattr(response, 'Reason') else str(response)
-                    output_tokens = self._estimate_tokens(output_text, model)
-                    total_tokens = input_tokens + output_tokens
-                    
-                    # Calculate tokens per second
-                    tokens_per_second = total_tokens / response_time if response_time > 0 else 0
-                    
                     # Create performance metric
                     metric = PerformanceMetrics(
                         provider=provider,
                         model=model,
                         response_time=response_time,
-                        input_tokens=input_tokens,
-                        output_tokens=output_tokens,
-                        total_tokens=total_tokens,
-                        tokens_per_second=tokens_per_second,
-                        success=True
+                        success=True,
+                        prompt_category=prompt.get("category", "unknown")
                     )
                     
-                    print(f"✓ {response_time:.2f}s, {tokens_per_second:.1f} tok/s")
+                    print(f"✓ {response_time:.2f}s")
                     return metric
                     
                 except Exception as e:
@@ -315,11 +255,8 @@ class PerformanceEvaluator:
                         provider=provider,
                         model=model,
                         response_time=0,
-                        input_tokens=0,
-                        output_tokens=0,
-                        total_tokens=0,
-                        tokens_per_second=0,
                         success=False,
+                        prompt_category=prompt.get("category", "unknown"),
                         error_message=str(e)
                     )
                     return metric
@@ -345,11 +282,8 @@ class PerformanceEvaluator:
                     provider=provider,
                     model=model,
                     response_time=0,
-                    input_tokens=0,
-                    output_tokens=0,
-                    total_tokens=0,
-                    tokens_per_second=0,
                     success=False,
+                    prompt_category="unknown",
                     error_message=str(result)
                 )
                 valid_results.append(error_metric)
@@ -361,8 +295,8 @@ class PerformanceEvaluator:
         print(f"\nAsync performance evaluation completed in {total_time:.2f} seconds.")
         print(f"Successful requests: {len(successful_results)}/{len(valid_results)}")
         if successful_results:
-            avg_tokens_per_sec = sum(r.tokens_per_second for r in successful_results) / len(successful_results)
-            print(f"Average tokens/second: {avg_tokens_per_sec:.1f}")
+            avg_tokens_per_sec = sum(r.response_time for r in successful_results) / len(successful_results)
+            print(f"Average response time: {avg_tokens_per_sec:.2f} seconds")
         
         return valid_results
     
@@ -411,30 +345,21 @@ class PerformanceEvaluator:
                     'Model': model_key,
                     'Success_Rate': 0,
                     'Avg_Response_Time': 0,
-                    'Avg_Tokens_Per_Second': 0,
-                    'Min_Tokens_Per_Second': 0,
-                    'Max_Tokens_Per_Second': 0,
-                    'Avg_Input_Tokens': 0,
-                    'Avg_Output_Tokens': 0,
+                    'Min_Response_Time': 0,
+                    'Max_Response_Time': 0,
                     'Total_Requests': len(metrics_list)
                 })
                 continue
             
             # Calculate statistics
             response_times = [m.response_time for m in successful_metrics]
-            tokens_per_second = [m.tokens_per_second for m in successful_metrics]
-            input_tokens = [m.input_tokens for m in successful_metrics]
-            output_tokens = [m.output_tokens for m in successful_metrics]
             
             summary_data.append({
                 'Model': model_key,
                 'Success_Rate': len(successful_metrics) / len(metrics_list),
                 'Avg_Response_Time': sum(response_times) / len(response_times),
-                'Avg_Tokens_Per_Second': sum(tokens_per_second) / len(tokens_per_second),
-                'Min_Tokens_Per_Second': min(tokens_per_second),
-                'Max_Tokens_Per_Second': max(tokens_per_second),
-                'Avg_Input_Tokens': sum(input_tokens) / len(input_tokens),
-                'Avg_Output_Tokens': sum(output_tokens) / len(output_tokens),
+                'Min_Response_Time': min(response_times),
+                'Max_Response_Time': max(response_times),
                 'Total_Requests': len(metrics_list)
             })
         
@@ -448,16 +373,15 @@ class PerformanceEvaluator:
         print("PERFORMANCE EVALUATION REPORT")
         print(f"{'='*100}")
         
-        # Sort by tokens per second
-        summary_df = summary_df.sort_values('Avg_Tokens_Per_Second', ascending=False)
+        # Sort by response time
+        summary_df = summary_df.sort_values('Avg_Response_Time', ascending=True)
         
-        print(f"{'Model':<25} {'Success%':<10} {'Avg T/s':<10} {'Min T/s':<10} {'Max T/s':<10} {'Avg Time':<10} {'Requests':<10}")
+        print(f"{'Model':<25} {'Success%':<10} {'Avg Time':<10} {'Min Time':<10} {'Max Time':<10} {'Requests':<10}")
         print("-" * 100)
         
         for _, row in summary_df.iterrows():
-            print(f"{row['Model']:<25} {row['Success_Rate']:<10.1%} {row['Avg_Tokens_Per_Second']:<10.1f} "
-                  f"{row['Min_Tokens_Per_Second']:<10.1f} {row['Max_Tokens_Per_Second']:<10.1f} "
-                  f"{row['Avg_Response_Time']:<10.2f} {row['Total_Requests']:<10}")
+            print(f"{row['Model']:<25} {row['Success_Rate']:<10.1%} {row['Avg_Response_Time']:<10.2f} "
+                  f"{row['Min_Response_Time']:<10.2f} {row['Max_Response_Time']:<10.2f} {row['Total_Requests']:<10}")
         
         print(f"\n{'='*100}")
         
@@ -465,7 +389,7 @@ class PerformanceEvaluator:
         if not summary_df.empty:
             best_model = summary_df.iloc[0]
             print(f"🏆 Best performing model: {best_model['Model']}")
-            print(f"   Average tokens/second: {best_model['Avg_Tokens_Per_Second']:.1f}")
+            print(f"   Average response time: {best_model['Avg_Response_Time']:.2f} seconds")
             print(f"   Success rate: {best_model['Success_Rate']:.1%}")
     
     def save_results(self, results: Dict[str, List[PerformanceMetrics]], output_dir: str = "performance_results") -> Dict[str, str]:
@@ -486,11 +410,8 @@ class PerformanceEvaluator:
                     'provider': metric.provider,
                     'model_name': metric.model,
                     'response_time': metric.response_time,
-                    'input_tokens': metric.input_tokens,
-                    'output_tokens': metric.output_tokens,
-                    'total_tokens': metric.total_tokens,
-                    'tokens_per_second': metric.tokens_per_second,
                     'success': metric.success,
+                    'prompt_category': metric.prompt_category,
                     'error_message': metric.error_message
                 })
         

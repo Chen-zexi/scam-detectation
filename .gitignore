@@ -23,6 +23,8 @@ venv/
 *.csv.backup
 llm_evaluation_results.csv
 evaluation_results/
+performance_results/*
+checkpoints/*
 
 # Temporary file
 *.tmp

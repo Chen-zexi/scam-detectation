@@ -18,6 +18,9 @@ from typing import List, Dict, Any, Optional
 import pandas as pd
 import asyncio
 import time
+import json
+from datetime import datetime
+from tqdm import tqdm
 
 # Add current directory to Python path to allow imports
 current_dir = Path(__file__).parent
@@ -146,6 +149,13 @@ class LLMAnnotationPipeline:
         self.structure_model = None
         self.prompt_generator = None
         self.annotations = []
+        
+        # Checkpoint state
+        self.current_index = 0
+        self.checkpoint_file = None
+        self.total_records = 0
+        self.start_time = None
+        self.last_checkpoint_message = None
         
     def setup_llm(self):
         """Initialize the LLM"""
@@ -576,6 +586,423 @@ class LLMAnnotationPipeline:
                 'dataset_name': self.data_loader.dataset_name
             }
         }
+    
+    # ==================== CHECKPOINT FUNCTIONALITY ====================
+    
+    def _get_checkpoint_filename(self) -> str:
+        """Generate checkpoint filename based on configuration"""
+        dataset_name = Path(self.dataset_path).stem
+        # Sanitize model name for filesystem compatibility
+        safe_model_name = self.model.replace("/", "-").replace("\\", "-").replace(":", "-")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        return f"{dataset_name}_annotation_{self.provider}_{safe_model_name}_{timestamp}.json"
+    
+    def _find_existing_checkpoint(self, checkpoint_dir: str = "checkpoints") -> Optional[Path]:
+        """Find the most recent checkpoint file for this configuration"""
+        checkpoint_path = Path(checkpoint_dir)
+        if not checkpoint_path.exists():
+            return None
+            
+        dataset_name = Path(self.dataset_path).stem
+        # Sanitize model name for filesystem compatibility
+        safe_model_name = self.model.replace("/", "-").replace("\\", "-").replace(":", "-")
+        pattern = f"{dataset_name}_annotation_{self.provider}_{safe_model_name}_*.json"
+        
+        checkpoint_files = list(checkpoint_path.glob(pattern))
+        if checkpoint_files:
+            return max(checkpoint_files, key=lambda f: f.stat().st_mtime)
+        return None
+    
+    def load_checkpoint(self, checkpoint_dir: str = "checkpoints", 
+                       resume_from_checkpoint: bool = True,
+                       override_compatibility: bool = False) -> bool:
+        """Load existing checkpoint if available and resume_from_checkpoint is True"""
+        if not resume_from_checkpoint:
+            return False
+            
+        checkpoint_file = self._find_existing_checkpoint(checkpoint_dir)
+        if not checkpoint_file:
+            print("No existing checkpoint found. Starting from beginning.")
+            return False
+        
+        try:
+            with open(checkpoint_file, 'r') as f:
+                checkpoint_data = json.load(f)
+            
+            # Validate checkpoint compatibility
+            if not override_compatibility and (checkpoint_data.get('dataset_path') != self.dataset_path or
+                checkpoint_data.get('provider') != self.provider or
+                checkpoint_data.get('model') != self.model):
+                print("Checkpoint configuration mismatch. Starting from beginning.")
+                return False
+            
+            # Show compatibility override message if needed
+            if override_compatibility and (checkpoint_data.get('dataset_path') != self.dataset_path or
+                checkpoint_data.get('provider') != self.provider or
+                checkpoint_data.get('model') != self.model):
+                print("Loading checkpoint with compatibility override:")
+                print(f"  Original provider: {checkpoint_data.get('provider')} -> Current: {self.provider}")
+                print(f"  Original model: {checkpoint_data.get('model')} -> Current: {self.model}")
+            
+            # Load checkpoint state
+            self.current_index = checkpoint_data.get('current_index', 0)
+            self.annotations = checkpoint_data.get('annotations', [])
+            self.checkpoint_file = checkpoint_file
+            
+            print(f"Loaded checkpoint from {checkpoint_file}")
+            print(f"Resuming from index {self.current_index} with {len(self.annotations)} existing annotations")
+            return True
+            
+        except Exception as e:
+            print(f"Error loading checkpoint: {e}")
+            print("Starting from beginning.")
+            return False
+    
+    def save_checkpoint(self, checkpoint_dir: str = "checkpoints"):
+        """Save current processing state to checkpoint file"""
+        checkpoint_path = Path(checkpoint_dir)
+        checkpoint_path.mkdir(parents=True, exist_ok=True)
+        
+        if not self.checkpoint_file:
+            self.checkpoint_file = checkpoint_path / self._get_checkpoint_filename()
+        
+        checkpoint_data = {
+            'dataset_path': self.dataset_path,
+            'provider': self.provider,
+            'model': self.model,
+            'sample_size': self.sample_size,
+            'content_columns': self.content_columns,
+            'enable_thinking': self.enable_thinking,
+            'use_structure_model': self.use_structure_model,
+            'current_index': self.current_index,
+            'total_records': self.total_records,
+            'annotations': self.annotations,
+            'timestamp': datetime.now().isoformat(),
+            'elapsed_time': time.time() - self.start_time if self.start_time else 0
+        }
+        
+        try:
+            with open(self.checkpoint_file, 'w') as f:
+                json.dump(checkpoint_data, f, indent=2, default=str)
+        except Exception as e:
+            print(f"Error saving checkpoint: {e}")
+    
+    def _write_checkpoint_message(self, message: str):
+        """Write checkpoint message, clearing the previous one"""
+        # Clear previous checkpoint message if it exists
+        if self.last_checkpoint_message:
+            # Move cursor up and clear line
+            tqdm.write('\033[F\033[K', end='')
+        
+        # Write new checkpoint message
+        tqdm.write(message)
+        self.last_checkpoint_message = message
+    
+    def process_full_dataset_with_checkpoints(self, 
+                                            checkpoint_interval: int = 1000,
+                                            checkpoint_dir: str = "checkpoints",
+                                            resume_from_checkpoint: bool = True,
+                                            override_compatibility: bool = False) -> Dict[str, Any]:
+        """
+        Process the entire dataset (no sampling) with checkpointing capabilities
+        
+        Args:
+            checkpoint_interval: Number of records to process before saving checkpoint
+            checkpoint_dir: Directory to save checkpoints
+            resume_from_checkpoint: Whether to resume from existing checkpoint if found
+            override_compatibility: Whether to override checkpoint compatibility checks
+            
+        Returns:
+            Dictionary with annotation results and file paths
+        """
+        print("="*80)
+        print("ANNOTATION PIPELINE WITH CHECKPOINTING")
+        print("="*80)
+        
+        # Setup LLM
+        self.setup_llm()
+        
+        # Load full dataset (no sampling)
+        self.data_loader.load_dataset()
+        dataset_df = self.data_loader.df
+        self.total_records = len(dataset_df)
+        
+        # Validate content columns
+        if self.content_columns:
+            missing_columns = [col for col in self.content_columns if col not in self.data_loader.features]
+            if missing_columns:
+                raise ValueError(f"Specified content columns not found: {missing_columns}")
+        else:
+            self.content_columns = self.data_loader.features
+        
+        # Initialize prompt generator
+        self.prompt_generator = AnnotationPromptGenerator(self.data_loader.features, self.content_columns)
+        
+        print(f"Dataset: {self.data_loader.dataset_name}")
+        print(f"Total records: {self.total_records:,}")
+        print(f"Checkpoint interval: {checkpoint_interval:,}")
+        print(f"Content features: {', '.join(self.content_columns)}")
+        
+        # Load checkpoint if available
+        self.load_checkpoint(checkpoint_dir, resume_from_checkpoint, override_compatibility)
+        
+        self.start_time = time.time()
+        total_processed = len(self.annotations)
+        
+        print(f"\nProcessing records {self.current_index + 1} to {self.total_records}...")
+        
+        # Create progress bar
+        progress_bar = tqdm(
+            range(self.current_index, self.total_records),
+            desc="Annotating",
+            unit="records",
+            initial=self.current_index,
+            total=self.total_records
+        )
+        
+        # Process remaining records
+        for i in progress_bar:
+            row = dataset_df.iloc[i]
+            
+            # Update progress bar description
+            progress_bar.set_description(f"Annotating record {i + 1}/{self.total_records}")
+            
+            try:
+                # Create annotation prompt
+                system_prompt = self.prompt_generator.get_system_prompt()
+                user_prompt = self.prompt_generator.create_annotation_prompt(row.to_dict(), str(row['label']))
+                
+                # Make API call
+                if self.use_structure_model:
+                    response = make_api_call(self.llm, system_prompt, user_prompt,
+                                           enable_thinking=self.enable_thinking, structure_model=True)
+                    if self.enable_thinking or ('<think>' in response and '</think>' in response):
+                        import re
+                        response = re.sub(r'<think>.*?</think>', '', response, flags=re.DOTALL).strip()
+                    response = parse_structured_output(self.structure_model, response, AnnotationResponseSchema)
+                else:
+                    # Make API call with custom structured output for annotations
+                    prompt_template = self._get_annotation_prompt_template()
+                    messages = prompt_template.invoke({"system_prompt": system_prompt, "user_prompt": user_prompt})
+                    client = self.llm.with_structured_output(AnnotationResponseSchema)
+                    response = client.invoke(messages)
+                
+                # Create annotation record
+                annotation = self._create_annotation_record(i, row, response)
+                
+            except Exception as e:
+                tqdm.write(f"Error processing record {i + 1}: {e}")
+                annotation = self._create_error_annotation_record(i, row, str(e))
+            
+            self.annotations.append(annotation)
+            self.current_index = i + 1
+            total_processed += 1
+            
+            # Save checkpoint at intervals
+            if (i + 1) % checkpoint_interval == 0:
+                self.save_checkpoint(checkpoint_dir)
+                self._write_checkpoint_message(f"Checkpoint saved at record {i + 1}")
+        
+        # Close progress bar
+        progress_bar.close()
+        
+        # Final checkpoint
+        self.save_checkpoint(checkpoint_dir)
+        
+        # Save final results
+        save_paths = self.save_annotations()
+        
+        total_time = time.time() - self.start_time
+        print(f"\n{'='*80}")
+        print("ANNOTATION COMPLETED")
+        print(f"{'='*80}")
+        print(f"Total records processed: {total_processed:,}")
+        print(f"Total time: {total_time:.2f} seconds")
+        print(f"Average time per record: {total_time/total_processed:.3f} seconds")
+        
+        return {
+            'annotations': self.annotations,
+            'save_paths': save_paths,
+            'summary': {
+                'total_records': len(self.annotations),
+                'successful_annotations': len([a for a in self.annotations if a['confidence'] != 'error']),
+                'dataset_name': self.data_loader.dataset_name,
+                'checkpoint_file': str(self.checkpoint_file) if self.checkpoint_file else None
+            }
+        }
+    
+    async def process_full_dataset_with_checkpoints_async(self, 
+                                                         checkpoint_interval: int = 1000,
+                                                         checkpoint_dir: str = "checkpoints",
+                                                         resume_from_checkpoint: bool = True,
+                                                         concurrent_requests: int = 10,
+                                                         override_compatibility: bool = False) -> Dict[str, Any]:
+        """
+        Process the entire dataset (no sampling) with checkpointing capabilities asynchronously
+        
+        Args:
+            checkpoint_interval: Number of records to process before saving checkpoint
+            checkpoint_dir: Directory to save checkpoints  
+            resume_from_checkpoint: Whether to resume from existing checkpoint if found
+            concurrent_requests: Number of concurrent requests to make
+            override_compatibility: Whether to override checkpoint compatibility checks
+            
+        Returns:
+            Dictionary with annotation results and file paths
+        """
+        print("="*80)
+        print("ASYNC ANNOTATION PIPELINE WITH CHECKPOINTING")
+        print(f"Concurrent requests: {concurrent_requests}")
+        print("="*80)
+        
+        # Setup LLM
+        self.setup_llm()
+        
+        # Load full dataset (no sampling)
+        self.data_loader.load_dataset()
+        dataset_df = self.data_loader.df
+        self.total_records = len(dataset_df)
+        
+        # Validate content columns
+        if self.content_columns:
+            missing_columns = [col for col in self.content_columns if col not in self.data_loader.features]
+            if missing_columns:
+                raise ValueError(f"Specified content columns not found: {missing_columns}")
+        else:
+            self.content_columns = self.data_loader.features
+        
+        # Initialize prompt generator
+        self.prompt_generator = AnnotationPromptGenerator(self.data_loader.features, self.content_columns)
+        
+        print(f"Dataset: {self.data_loader.dataset_name}")
+        print(f"Total records: {self.total_records:,}")
+        print(f"Checkpoint interval: {checkpoint_interval:,}")
+        print(f"Content features: {', '.join(self.content_columns)}")
+        
+        # Load checkpoint if available
+        self.load_checkpoint(checkpoint_dir, resume_from_checkpoint, override_compatibility)
+        
+        self.start_time = time.time()
+        
+        # Create semaphore to limit concurrent requests
+        semaphore = asyncio.Semaphore(concurrent_requests)
+        
+        print(f"\nProcessing records {self.current_index + 1} to {self.total_records}...")
+        
+        # Process in chunks to manage memory and checkpointing
+        chunk_size = min(checkpoint_interval, concurrent_requests * 10)
+        
+        # Create overall progress bar
+        overall_progress = tqdm(
+            total=self.total_records,
+            desc="Overall Progress",
+            unit="records",
+            initial=self.current_index,
+            position=0,
+            leave=False
+        )
+        
+        for chunk_start in range(self.current_index, self.total_records, chunk_size):
+            chunk_end = min(chunk_start + chunk_size, self.total_records)
+            chunk_size_actual = chunk_end - chunk_start
+            
+            # Create chunk progress bar
+            chunk_progress = tqdm(
+                total=chunk_size_actual,
+                desc=f"Chunk {chunk_start + 1}-{chunk_end}",
+                unit="records",
+                position=1,
+                leave=False
+            )
+            
+            # Create tasks for this chunk
+            async def annotate_with_semaphore(index: int, row: pd.Series):
+                async with semaphore:
+                    result = await self._annotate_single_record_async(index, row)
+                    chunk_progress.update(1)
+                    return result
+            
+            tasks = []
+            for i in range(chunk_start, chunk_end):
+                row = dataset_df.iloc[i]
+                tasks.append(annotate_with_semaphore(i, row))
+            
+            # Process chunk
+            chunk_results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # Handle results and exceptions
+            for i, result in enumerate(chunk_results):
+                actual_index = chunk_start + i
+                if isinstance(result, Exception):
+                    row = dataset_df.iloc[actual_index]
+                    result = self._create_error_annotation_record(actual_index, row, str(result))
+                
+                self.annotations.append(result)
+                self.current_index = actual_index + 1
+                overall_progress.update(1)
+            
+            # Close chunk progress bar
+            chunk_progress.close()
+            
+            # Save checkpoint after each chunk
+            if chunk_end % checkpoint_interval <= chunk_size:
+                self.save_checkpoint(checkpoint_dir)
+                self._write_checkpoint_message(f"Checkpoint saved at record {chunk_end}")
+        
+        # Close overall progress bar
+        overall_progress.close()
+        
+        # Final checkpoint
+        self.save_checkpoint(checkpoint_dir)
+        
+        # Save final results
+        save_paths = self.save_annotations()
+        
+        total_time = time.time() - self.start_time
+        total_processed = len(self.annotations)
+        
+        print(f"\n{'='*80}")
+        print("ASYNC ANNOTATION COMPLETED")
+        print(f"{'='*80}")
+        print(f"Total records processed: {total_processed:,}")
+        print(f"Total time: {total_time:.2f} seconds")
+        print(f"Average time per record: {total_time/total_processed:.3f} seconds")
+        
+        return {
+            'annotations': self.annotations,
+            'save_paths': save_paths,
+            'summary': {
+                'total_records': len(self.annotations),
+                'successful_annotations': len([a for a in self.annotations if a['confidence'] != 'error']),
+                'dataset_name': self.data_loader.dataset_name,
+                'checkpoint_file': str(self.checkpoint_file) if self.checkpoint_file else None
+            }
+        }
+    
+    async def _annotate_single_record_async(self, index: int, row: pd.Series) -> Dict[str, Any]:
+        """Annotate a single record asynchronously"""
+        try:
+            system_prompt = self.prompt_generator.get_system_prompt()
+            user_prompt = self.prompt_generator.create_annotation_prompt(row.to_dict(), str(row['label']))
+            
+            if self.use_structure_model:
+                response = await make_api_call_async(self.llm, system_prompt, user_prompt,
+                                                   enable_thinking=self.enable_thinking, structure_model=True)
+                if self.enable_thinking or ('<think>' in response and '</think>' in response):
+                    import re
+                    response = re.sub(r'<think>.*?</think>', '', response, flags=re.DOTALL).strip()
+                response = await parse_structured_output_async(self.structure_model, response, AnnotationResponseSchema)
+            else:
+                # Make async API call with custom structured output for annotations
+                prompt_template = self._get_annotation_prompt_template()
+                messages = prompt_template.invoke({"system_prompt": system_prompt, "user_prompt": user_prompt})
+                client = self.llm.with_structured_output(AnnotationResponseSchema)
+                response = await client.ainvoke(messages)
+            
+            return self._create_annotation_record(index, row, response)
+            
+        except Exception as e:
+            return self._create_error_annotation_record(index, row, str(e))
 
 def parse_arguments():
     """Parse command line arguments"""

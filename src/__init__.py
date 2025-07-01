@@ -7,6 +7,7 @@ Supports various content types: emails, texts, conversations, messages, etc.
 """
 
 from .evaluator import ScamDetectionEvaluator, PhishingEvaluator
+from .annotation_pipeline import LLMAnnotationPipeline
 from .data_loader import DatasetLoader
 from .prompt_generator import PromptGenerator
 from .metrics_calculator import MetricsCalculator
@@ -20,6 +21,7 @@ __author__ = "Your Name"
 __all__ = [
     'ScamDetectionEvaluator',
     'PhishingEvaluator',  # Backward compatibility
+    'LLMAnnotationPipeline',
     'DatasetLoader', 
     'PromptGenerator',
     'MetricsCalculator',
