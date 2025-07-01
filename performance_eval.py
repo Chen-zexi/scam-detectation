@@ -3,7 +3,7 @@
 Example usage of the Performance Evaluation Pipeline with Async Support
 
 This script demonstrates different ways to use the performance evaluation pipeline
-to measure token/second performance across different models and providers using
+to measure processing time performance across different models and providers using
 concurrent requests for faster testing.
 """
 
@@ -20,7 +20,7 @@ from src.performance_evaluator import PerformanceEvaluator
 
 async def performance_evaluation_async():
     """
-    Async performance evaluation with concurrent requests
+    Async performance evaluation with concurrent requests to measure processing time
     """
     print("\n" + "="*80)
     print("ASYNC PERFORMANCE EVALUATION")
@@ -28,7 +28,7 @@ async def performance_evaluation_async():
     
     # Check if we have a dataset available
     dataset_paths = [
-        "unified_error_dataset/unified_error_dataset.csv"
+        "data/cleaned/unified_phishing_email_dataset.csv"
     ]
     
     dataset_path = None
@@ -41,21 +41,21 @@ async def performance_evaluation_async():
         print("No dataset found, using synthetic prompts for testing.")
     
     model_configs = [
-        {"provider": "openai", "model": "gpt-4.1-mini"},
-        {"provider": "openai", "model": "gpt-4.1"},
-        {"provider": "lm-studio", "model": "unsloth/qwen3-30b-a3b"},
+        #{"provider": "openai", "model": "gpt-4.1-mini"},
+        #{"provider": "openai", "model": "gpt-4.1"},
+        {"provider": "vllm", "model": "Qwen/Qwen3-30B-A3B"},
         # Add more models as needed
     ]
     
-    concurrent_requests = 10  # Adjust based on API limits
+    concurrent_requests = 20  # Adjust based on API limits
     
     try:
         # Initialize evaluator with dataset
         evaluator = PerformanceEvaluator(
             dataset_path=dataset_path,
-            sample_size=5,
+            sample_size=20,
             random_state=42,
-            content_columns=['content'] if dataset_path else None
+            content_columns=['body'] if dataset_path else None
         )
         
         print(f"Testing {len(model_configs)} models with {concurrent_requests} concurrent requests each")
@@ -95,13 +95,15 @@ async def performance_evaluation_async():
                 # Print individual model summary
                 successful_results = [r for r in results if r.success]
                 if successful_results:
-                    avg_tokens_per_sec = sum(r.tokens_per_second for r in successful_results) / len(successful_results)
                     avg_response_time = sum(r.response_time for r in successful_results) / len(successful_results)
+                    min_response_time = min(r.response_time for r in successful_results)
+                    max_response_time = max(r.response_time for r in successful_results)
                     success_rate = len(successful_results) / len(results)
                     
                     print(f"Success rate: {success_rate:.1%}")
-                    print(f"Avg tokens/sec: {avg_tokens_per_sec:.1f}")
                     print(f"Avg response time: {avg_response_time:.2f}s")
+                    print(f"Min response time: {min_response_time:.2f}s")
+                    print(f"Max response time: {max_response_time:.2f}s")
                 else:
                     print(f"All requests failed for {model_key}")
                     
@@ -148,7 +150,7 @@ async def performance_evaluation_async():
 
 def performance_evaluation_sync():
     """
-    Synchronous performance evaluation (fallback)
+    Synchronous performance evaluation to measure processing time (fallback)
     """
     print("\n" + "="*80)
     print("SYNC PERFORMANCE EVALUATION")
@@ -156,7 +158,7 @@ def performance_evaluation_sync():
     
     # Check if we have a dataset available
     dataset_paths = [
-        "unified_error_dataset/unified_error_dataset.csv"
+        "data/cleaned/unified_phishing_email_dataset.csv"
     ]
     
     dataset_path = None
@@ -169,9 +171,9 @@ def performance_evaluation_sync():
         print("No dataset found, using synthetic prompts for testing.")
     
     model_configs = [
-        {"provider": "openai", "model": "gpt-4.1-mini"},
-        {"provider": "openai", "model": "gpt-4.1"},
-        {"provider": "lm-studio", "model": "unsloth/qwen3-30b-a3b"},
+        #{"provider": "openai", "model": "gpt-4.1-mini"},
+        #{"provider": "openai", "model": "gpt-4.1"},
+        {"provider": "vllm", "model": "Qwen/Qwen3-30B-A3B"},
         # Add more models as needed
     ]
     
@@ -179,9 +181,9 @@ def performance_evaluation_sync():
         # Initialize evaluator with dataset
         evaluator = PerformanceEvaluator(
             dataset_path=dataset_path,
-            sample_size=5,
+            sample_size=20,
             random_state=42,
-            content_columns=['content'] if dataset_path else None
+            content_columns=['body'] if dataset_path else None
         )
         
         print(f"Testing {len(model_configs)} models sequentially")
@@ -267,9 +269,9 @@ async def compare_async_vs_sync():
             print("- Sync method failed")
 
 async def main_async():
-    """Run async performance evaluation"""
+    """Run async performance evaluation to measure processing times"""
     print("PERFORMANCE EVALUATION PIPELINE - ASYNC VERSION")
-    print("Using concurrent requests for faster testing")
+    print("Using concurrent requests for faster processing time testing")
     await performance_evaluation_async()
 
 def main():
