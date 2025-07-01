@@ -14,15 +14,15 @@ sys.path.append('src')
 
 from src import ScamDetectionEvaluator
 
-def dialogue_eval():
+def sms_eval():
     print("="*80)
-    print("DIALOGUE EVALUATION")
+    print("SMS EVALUATION")
     print("="*80)
     
-    dataset_path = "data/cleaned/phising_dialogue_dataset.csv"
+    dataset_path = "data/cleaned/phishing_sms_dataset.csv"
     provider = "lm-studio"
     model = "unsloth/qwen3-30b-a3b"
-    sample_size = 1600
+    sample_size = 5572
     
     if not Path(dataset_path).exists():
         print(f"Dataset not found: {dataset_path}")
@@ -37,22 +37,22 @@ def dialogue_eval():
             model=model,
             sample_size=sample_size,
             random_state=42,
-            content_columns=['dialogue'],
+            content_columns=['message'],
             balanced_sample=False
         )
         
         # Run evaluation
         results = evaluator.run_full_evaluation()
         
-        print("\n✓ Dialogue Evaluation completed successfully!")
+        print("\nSMS Evaluation completed successfully!")
         
     except Exception as e:
-        print(f"❌ Dialogue Evaluation failed: {e}")
+        print(f"SMS Evaluation failed: {e}")
 
 def main():
     """Run all examples"""
-    print("SCAM DETECTION PIPELINE - DIALOGUE EVALUATION")
-    dialogue_eval()
+    print("SCAM DETECTION PIPELINE - SMS EVALUATION")
+    sms_eval()
     
     
 

@@ -45,10 +45,10 @@ def email_eval():
         # Run evaluation
         results = evaluator.run_full_evaluation()
         
-        print("\n✓ Email Evaluation completed successfully!")
+        print("\nEmail Evaluation completed successfully!")
         
     except Exception as e:
-        print(f"❌ Email Evaluation failed: {e}")
+        print(f"Email Evaluation failed: {e}")
 
 def main():
     """Run all examples"""

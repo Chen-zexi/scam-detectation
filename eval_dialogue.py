@@ -14,15 +14,15 @@ sys.path.append('src')
 
 from src import ScamDetectionEvaluator
 
-def error_eval():
+def dialogue_eval():
     print("="*80)
-    print("EMAIL EVALUATION: Unified Dataset - All Content Features (Local Model)")
+    print("DIALOGUE EVALUATION")
     print("="*80)
     
-    dataset_path = "data/cleaned/unified_error_dataset/unified_error_dataset.csv"
-    provider = "openai"
-    model = "gpt-4.1-mini"
-    sample_size = 2540
+    dataset_path = "data/cleaned/phising_dialogue_dataset.csv"
+    provider = "lm-studio"
+    model = "unsloth/qwen3-30b-a3b"
+    sample_size = 1600
     
     if not Path(dataset_path).exists():
         print(f"Dataset not found: {dataset_path}")
@@ -37,22 +37,22 @@ def error_eval():
             model=model,
             sample_size=sample_size,
             random_state=42,
-            content_columns=['content'],
+            content_columns=['dialogue'],
             balanced_sample=False
         )
         
         # Run evaluation
         results = evaluator.run_full_evaluation()
         
-        print("\n✓ Error Evaluation completed successfully!")
+        print("\nDialogue Evaluation completed successfully!")
         
     except Exception as e:
-        print(f"❌ Error Evaluation failed: {e}")
+        print(f"Dialogue Evaluation failed: {e}")
 
 def main():
     """Run all examples"""
-    print("SCAM DETECTION PIPELINE - EMAIL EVALUATION")
-    error_eval()
+    print("SCAM DETECTION PIPELINE - DIALOGUE EVALUATION")
+    dialogue_eval()
     
     
 
