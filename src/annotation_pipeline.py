@@ -831,14 +831,14 @@ class LLMAnnotationPipeline:
             }
         }
     
-    async def process_full_dataset_with_checkpoints_async(self, 
-                                                         checkpoint_interval: int = 1000,
-                                                         checkpoint_dir: str = "checkpoints",
-                                                         resume_from_checkpoint: bool = True,
-                                                         concurrent_requests: int = 10,
-                                                         override_compatibility: bool = False) -> Dict[str, Any]:
+    async def process_full_dataset_with_checkpoints_async_chunked(self, 
+                                                                 checkpoint_interval: int = 1000,
+                                                                 checkpoint_dir: str = "checkpoints",
+                                                                 resume_from_checkpoint: bool = True,
+                                                                 concurrent_requests: int = 10,
+                                                                 override_compatibility: bool = False) -> Dict[str, Any]:
         """
-        Process the entire dataset (no sampling) with checkpointing capabilities asynchronously
+        Process the entire dataset using chunked batching (legacy method)
         
         Args:
             checkpoint_interval: Number of records to process before saving checkpoint
@@ -851,7 +851,7 @@ class LLMAnnotationPipeline:
             Dictionary with annotation results and file paths
         """
         print("="*80)
-        print("ASYNC ANNOTATION PIPELINE WITH CHECKPOINTING")
+        print("ASYNC ANNOTATION PIPELINE WITH CHUNKED BATCHING")
         print(f"Concurrent requests: {concurrent_requests}")
         print("="*80)
         
@@ -962,7 +962,7 @@ class LLMAnnotationPipeline:
         total_processed = len(self.annotations)
         
         print(f"\n{'='*80}")
-        print("ASYNC ANNOTATION COMPLETED")
+        print("CHUNKED ASYNC ANNOTATION COMPLETED")
         print(f"{'='*80}")
         print(f"Total records processed: {total_processed:,}")
         print(f"Total time: {total_time:.2f} seconds")
@@ -1003,6 +1003,280 @@ class LLMAnnotationPipeline:
             
         except Exception as e:
             return self._create_error_annotation_record(index, row, str(e))
+
+    async def process_full_dataset_with_checkpoints_async(self, 
+                                                         checkpoint_interval: int = 1000,
+                                                         checkpoint_dir: str = "checkpoints",
+                                                         resume_from_checkpoint: bool = True,
+                                                         concurrent_requests: int = 10,
+                                                         override_compatibility: bool = False) -> Dict[str, Any]:
+        """
+        Process the entire dataset with asynchronous overlapping batches
+        
+        This method starts new requests as soon as slots become available rather than 
+        waiting for entire chunks to complete, eliminating convoy effects from slow requests.
+        
+        Args:
+            checkpoint_interval: Number of records to process before saving checkpoint
+            checkpoint_dir: Directory to save checkpoints  
+            resume_from_checkpoint: Whether to resume from existing checkpoint if found
+            concurrent_requests: Number of concurrent requests to maintain
+            override_compatibility: Whether to override checkpoint compatibility checks
+            
+        Returns:
+            Dictionary with annotation results and file paths
+        """
+        print("="*80)
+        print("ASYNC ANNOTATION PIPELINE WITH OVERLAPPING BATCHES")
+        print(f"Concurrent requests: {concurrent_requests}")
+        print("="*80)
+        
+        # Setup LLM
+        self.setup_llm()
+        
+        # Load full dataset (no sampling)
+        self.data_loader.load_dataset()
+        dataset_df = self.data_loader.df
+        self.total_records = len(dataset_df)
+        
+        # Validate content columns
+        if self.content_columns:
+            missing_columns = [col for col in self.content_columns if col not in self.data_loader.features]
+            if missing_columns:
+                raise ValueError(f"Specified content columns not found: {missing_columns}")
+        else:
+            self.content_columns = self.data_loader.features
+        
+        # Initialize prompt generator
+        self.prompt_generator = AnnotationPromptGenerator(self.data_loader.features, self.content_columns)
+        
+        print(f"Dataset: {self.data_loader.dataset_name}")
+        print(f"Total records: {self.total_records:,}")
+        print(f"Checkpoint interval: {checkpoint_interval:,}")
+        print(f"Content features: {', '.join(self.content_columns)}")
+        
+        # Load checkpoint if available
+        self.load_checkpoint(checkpoint_dir, resume_from_checkpoint, override_compatibility)
+        
+        self.start_time = time.time()
+        
+        print(f"\nProcessing records {self.current_index + 1} to {self.total_records}...")
+        
+        # Show next checkpoint info
+        next_checkpoint = ((self.current_index // checkpoint_interval) + 1) * checkpoint_interval
+        if next_checkpoint <= self.total_records:
+            records_until_checkpoint = next_checkpoint - self.current_index
+            print(f"Next checkpoint at record {next_checkpoint:,} ({records_until_checkpoint:,} records away)")
+        
+        # Create overall progress bar with enhanced statistics
+        overall_progress = tqdm(
+            total=self.total_records,
+            desc="Overall Progress",
+            unit="records",
+            initial=self.current_index,
+            position=0,
+            leave=False,
+            bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]'
+        )
+        
+        # Enhanced time tracking
+        last_time_update = time.time()
+        last_update_index = self.current_index
+        rates_history = []  # Track rate history for smoothing
+        session_start_index = self.current_index  # Track starting point for current session
+        
+        # Initialize overlapping batch processor
+        completed_results = {}  # index -> result
+        active_tasks = {}  # task -> index
+        next_index = self.current_index
+        
+        # Create semaphore for concurrent control
+        semaphore = asyncio.Semaphore(concurrent_requests)
+        
+        async def process_single_record(index: int, row: pd.Series):
+            """Process a single record with semaphore control"""
+            async with semaphore:
+                return await self._annotate_single_record_async(index, row)
+        
+        # Main processing loop with overlapping batches
+        while next_index < self.total_records or active_tasks:
+            
+            # Start new tasks up to concurrent limit
+            while len(active_tasks) < concurrent_requests and next_index < self.total_records:
+                row = dataset_df.iloc[next_index]
+                task = asyncio.create_task(process_single_record(next_index, row))
+                active_tasks[task] = next_index
+                next_index += 1
+            
+            # Wait for at least one task to complete
+            if active_tasks:
+                done, pending = await asyncio.wait(
+                    active_tasks.keys(), 
+                    return_when=asyncio.FIRST_COMPLETED
+                )
+                
+                # Process completed tasks
+                for task in done:
+                    index = active_tasks.pop(task)
+                    try:
+                        result = await task
+                    except Exception as e:
+                        row = dataset_df.iloc[index]
+                        result = self._create_error_annotation_record(index, row, str(e))
+                    
+                    completed_results[index] = result
+                    overall_progress.update(1)
+                
+                # Process completed results in order and add to final results
+                while self.current_index in completed_results:
+                    result = completed_results.pop(self.current_index)
+                    self.annotations.append(result)
+                    self.current_index += 1
+                    
+                    # Enhanced time estimation updates every 100 records
+                    if self.current_index % 100 == 0:
+                        current_time = time.time()
+                        time_diff = current_time - last_time_update
+                        records_diff = self.current_index - last_update_index
+                        
+                        # Only update if we have reasonable time difference (at least 1 second)
+                        if time_diff >= 1.0 and records_diff > 0:
+                            current_rate = records_diff / time_diff
+                            
+                            # Sanity check: rate should be reasonable (0.1 to 100 records/second)
+                            if 0.1 <= current_rate <= 100.0:
+                                rates_history.append(current_rate)
+                                
+                                # Keep only recent rates for smoothing (last 10 measurements)
+                                if len(rates_history) > 10:
+                                    rates_history = rates_history[-10:]
+                                
+                                # Calculate smoothed rate
+                                avg_rate = sum(rates_history) / len(rates_history)
+                                remaining_records = self.total_records - self.current_index
+                                remaining_time = remaining_records / avg_rate if avg_rate > 0 else 0
+                                
+                                # Update tqdm description with enhanced info
+                                elapsed_total = current_time - self.start_time
+                                records_processed_this_session = self.current_index - session_start_index
+                                overall_rate = records_processed_this_session / elapsed_total if elapsed_total > 0 else 0
+                                
+                                # Format remaining time nicely
+                                if remaining_time > 3600:
+                                    time_str = f"{remaining_time/3600:.1f}h"
+                                elif remaining_time > 60:
+                                    time_str = f"{remaining_time/60:.1f}m"
+                                else:
+                                    time_str = f"{remaining_time:.0f}s"
+                                
+                                overall_progress.set_description(
+                                    f"Progress (Current: {current_rate:.2f}r/s, Avg: {overall_rate:.2f}r/s, ETA: {time_str})"
+                                )
+                                
+                                last_time_update = current_time
+                                last_update_index = self.current_index
+                        
+                        # Fallback: if no valid current rate, still update with overall average
+                        elif time_diff >= 1.0:
+                            elapsed_total = current_time - self.start_time
+                            records_processed_this_session = self.current_index - session_start_index
+                            overall_rate = records_processed_this_session / elapsed_total if elapsed_total > 0 else 0
+                            
+                            if rates_history:
+                                avg_rate = sum(rates_history) / len(rates_history)
+                                remaining_records = self.total_records - self.current_index
+                                remaining_time = remaining_records / avg_rate
+                                
+                                if remaining_time > 3600:
+                                    time_str = f"{remaining_time/3600:.1f}h"
+                                elif remaining_time > 60:
+                                    time_str = f"{remaining_time/60:.1f}m"
+                                else:
+                                    time_str = f"{remaining_time:.0f}s"
+                                
+                                overall_progress.set_description(
+                                    f"Progress (Avg: {overall_rate:.2f}r/s, ETA: {time_str})"
+                                )
+                            else:
+                                overall_progress.set_description(f"Progress (Avg: {overall_rate:.2f}r/s)")
+                            
+                            last_time_update = current_time
+                            last_update_index = self.current_index
+                    
+                    # Save checkpoint periodically at fixed intervals (like sync version)
+                    if self.current_index % checkpoint_interval == 0:
+                        self.save_checkpoint(checkpoint_dir)
+                        
+                        # Update checkpoint with enhanced timing data
+                        try:
+                            checkpoint_file = Path(checkpoint_dir) / f"{self.checkpoint_file}.json"
+                            if checkpoint_file.exists():
+                                with open(checkpoint_file, 'r+') as f:
+                                    checkpoint_data = json.load(f)
+                                    f.seek(0)
+                                    
+                                    # Add enhanced timing information
+                                    elapsed_time = time.time() - self.start_time
+                                    checkpoint_data['elapsed_time'] = elapsed_time
+                                    checkpoint_data['current_rate'] = records_processed_this_session / elapsed_time if elapsed_time > 0 else 0
+                                    checkpoint_data['recent_rates'] = rates_history[-5:]  # Last 5 rates
+                                    
+                                    json.dump(checkpoint_data, f, indent=2)
+                                    f.truncate()
+                        except Exception as e:
+                            print(f"Warning: Could not update checkpoint timing data: {e}")
+                        
+                        elapsed_session = time.time() - self.start_time
+                        self._write_checkpoint_message(
+                            f"✓ Checkpoint saved at record {self.current_index:,} "
+                            f"(session: {elapsed_session/60:.1f}m, rate: {records_processed_this_session/elapsed_session:.2f}r/s)"
+                        )
+        
+        # Close progress bar
+        overall_progress.close()
+        
+        # Final enhanced summary
+        total_time = time.time() - self.start_time
+        records_processed_this_session = self.current_index - session_start_index
+        final_rate = records_processed_this_session / total_time if total_time > 0 else 0
+        
+        print(f"\nFINAL TIMING STATISTICS (Current Session)")
+        print(f"   Session time: {total_time:.2f} seconds ({total_time/3600:.2f} hours)")
+        print(f"   Session rate: {final_rate:.2f} records/second")
+        print(f"   Records processed this session: {records_processed_this_session:,}")
+        print(f"   Total records completed: {len(self.annotations):,}")
+        
+        if rates_history:
+            print(f"   Recent rate: {rates_history[-1]:.2f} records/second")
+            print(f"   Rate stability: {min(rates_history)/max(rates_history):.2f} (1.0 = perfectly stable)")
+        
+        # Final checkpoint
+        self.save_checkpoint(checkpoint_dir)
+        
+        # Save final results
+        save_paths = self.save_annotations()
+        
+        print(f"\n{'='*80}")
+        print("ASYNC ANNOTATION COMPLETED")
+        print(f"{'='*80}")
+        print(f"Total records completed: {len(self.annotations):,}")
+        print(f"Session processing rate: {final_rate:.2f} records/second")
+        
+        return {
+            'annotations': self.annotations,
+            'save_paths': save_paths,
+            'summary': {
+                'total_records': len(self.annotations),
+                'successful_annotations': len([a for a in self.annotations if a['confidence'] != 'error']),
+                'usable_annotations': len([a for a in self.annotations if a.get('usability', True)]),
+                'success_rate': len([a for a in self.annotations if a['confidence'] != 'error']) / len(self.annotations),
+                'usability_rate': len([a for a in self.annotations if a.get('usability', True)]) / len(self.annotations),
+                'dataset_name': self.data_loader.dataset_name,
+                'final_processing_rate': final_rate,
+                'total_processing_time': total_time,
+                'checkpoint_file': str(self.checkpoint_file) if self.checkpoint_file else None
+            }
+        }
 
 def parse_arguments():
     """Parse command line arguments"""

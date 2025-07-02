@@ -41,9 +41,9 @@ async def performance_evaluation_async():
         print("No dataset found, using synthetic prompts for testing.")
     
     model_configs = [
-        #{"provider": "openai", "model": "gpt-4.1-mini"},
-        #{"provider": "openai", "model": "gpt-4.1"},
-        {"provider": "vllm", "model": "Qwen/Qwen3-30B-A3B"},
+        {"provider": "openai", "model": "gpt-4.1-mini"},
+        {"provider": "openai", "model": "gpt-4.1"},
+        #{"provider": "vllm", "model": "Qwen/Qwen3-30B-A3B"},
         # Add more models as needed
     ]
     
@@ -171,8 +171,8 @@ def performance_evaluation_sync():
         print("No dataset found, using synthetic prompts for testing.")
     
     model_configs = [
-        #{"provider": "openai", "model": "gpt-4.1-mini"},
-        #{"provider": "openai", "model": "gpt-4.1"},
+        {"provider": "openai", "model": "gpt-4.1-mini"},
+        {"provider": "openai", "model": "gpt-4.1"},
         {"provider": "vllm", "model": "Qwen/Qwen3-30B-A3B"},
         # Add more models as needed
     ]

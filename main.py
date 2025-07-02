@@ -109,7 +109,7 @@ class InteractiveDatasetProcessor:
         print("Scanning for available datasets...")
         
         datasets = []
-        data_dir = Path("data")
+        data_dir = Path("data/cleaned")
         
         if not data_dir.exists():
             print("No data/ directory found!")
@@ -208,11 +208,9 @@ class InteractiveDatasetProcessor:
     def get_openai_models(self) -> List[str]:
         """Get predefined OpenAI model options"""
         return [
-            "gpt-4o",
-            "gpt-4o-mini", 
-            "gpt-4-turbo",
-            "gpt-4",
-            "gpt-3.5-turbo"
+            "o3",
+            "gpt-4.1-mini", 
+            "gpt-4.1"
         ]
 
     def get_lm_studio_models(self) -> List[str]:
@@ -379,8 +377,8 @@ class InteractiveDatasetProcessor:
         options['checkpoint_interval'] = int(interval_input) if interval_input else default_interval
         
         # Async processing
-        async_choice = input("Use async processing for faster execution? (y/N): ").strip().lower()
-        options['use_async'] = async_choice in ['y', 'yes']
+        async_choice = input("Use async processing for faster execution? (Y/n): ").strip().lower()
+        options['use_async'] = async_choice not in ['n', 'no']
         
         if options['use_async']:
             # Concurrent requests
@@ -397,8 +395,8 @@ class InteractiveDatasetProcessor:
         
         # Advanced options
         print("\nAdvanced options:")
-        options['enable_thinking'] = input("Enable thinking tokens? (y/N): ").strip().lower() in ['y', 'yes']
-        options['use_structure_model'] = input("Use structure model for parsing? (y/N): ").strip().lower() in ['y', 'yes']
+        options['enable_thinking'] = input("Enable thinking tokens? (Y/n): ").strip().lower() not in ['n', 'no']
+        options['use_structure_model'] = input("Use structure model for parsing? (Y/n): ").strip().lower() not in ['n', 'no']
         
         return options
     
@@ -440,8 +438,8 @@ class InteractiveDatasetProcessor:
                 print("The checkpoint data will be used, but with your current provider/model settings.")
                 print()
                 
-                override = input("Continue anyway and override the differences? (y/N): ").strip().lower()
-                if override not in ['y', 'yes']:
+                override = input("Continue anyway and override the differences? (Y/n): ").strip().lower()
+                if override not in ['', 'y', 'yes']:
                     print("Checkpoint cancelled. Please select a compatible checkpoint or start fresh.")
                     self.config['checkpoint_file'] = None
                 else:
@@ -472,11 +470,72 @@ class InteractiveDatasetProcessor:
             print("Starting: Fresh (no checkpoint)")
         print(f"Checkpoint interval: {self.config['checkpoint_interval']:,} records")
         if self.config['use_async']:
-            print(f"Processing: Async ({self.config['concurrent_requests']} concurrent)")
+            print(f"Processing: Async ({self.config['concurrent_requests']} concurrent, overlapping batches)")
         else:
             print("Processing: Sequential")
         if self.config['content_columns']:
             print(f"Content columns: {', '.join(self.config['content_columns'])}")
+        print()
+
+    def _calculate_time_estimate(self, total_records: int) -> float:
+        """Calculate initial time estimate per record using provider-specific baselines"""
+        
+        # Provider-specific base estimates (seconds per record)
+        # These are conservative estimates that will be improved by real-time data during processing
+        provider_estimates = {
+            'openai': 1.5,      # OpenAI models are typically fast
+            'lm-studio': 2.5,   # Local models vary more 
+            'vllm': 1.0         # vLLM is optimized for throughput
+        }
+        
+        # Get base estimate
+        base_estimate = provider_estimates.get(self.config['provider'], 2.0)
+        
+        # Adjust for task complexity
+        if self.config['task'] == 'annotation':
+            base_estimate *= 1.2  # Annotations are slightly more complex
+        
+        print(f"Using conservative provider-based estimate: {base_estimate:.2f}s per record")
+        print(f"   (Provider: {self.config['provider']}, Task: {self.config['task']})")
+        print(f"   Note: This estimate will improve significantly once processing begins")
+        return base_estimate
+    
+
+    
+    def _display_time_estimate(self, total_est_time: float, remaining_records: int, time_per_record: float):
+        """Display initial time estimate with context about real-time improvements"""
+        
+        print(f"\nINITIAL TIME ESTIMATION")
+        print(f"   Records remaining: {remaining_records:,}")
+        print(f"   Conservative estimate: {time_per_record:.2f}s per record")
+        
+        if self.config['use_async']:
+            concurrent = self.config['concurrent_requests']
+            print(f"   Concurrency: {concurrent} requests (overlapping batches)")
+            
+            # Show effective rate with overlapping efficiency
+            effective_rate = concurrent * 1.3 / time_per_record  # Include efficiency factor
+            print(f"   Theoretical max rate: ~{effective_rate:.1f} records/s (with overlapping efficiency)")
+        
+        # Display estimate in most appropriate unit
+        if total_est_time > 3600:
+            hours = total_est_time / 3600
+            print(f"Conservative estimate: {hours:.1f} hours")
+            if hours > 24:
+                days = hours / 24
+                print(f"      ({days:.1f} days)")
+        elif total_est_time > 60:
+            minutes = total_est_time / 60
+            print(f"Conservative estimate: {minutes:.1f} minutes")
+        else:
+            print(f"Conservative estimate: {total_est_time:.0f} seconds")
+        
+        # Add helpful context about real-time updates
+        print(f"\nNote: This is a conservative initial estimate based on provider averages.")
+        print(f"Actual processing speed and time estimates will be calculated and displayed")
+        print(f"in real-time based on current batch processing performance.")
+        if self.config['provider'] == 'vllm':
+            print(f"vLLM typically achieves much faster rates than this conservative estimate.")
         print()
 
     async def run_processing(self):
@@ -484,23 +543,9 @@ class InteractiveDatasetProcessor:
         print("STARTING PROCESSING...")
         print("-" * 40)
         
-        # Estimate processing time - use checkpoint data if available for better estimation
+        # Initial conservative time estimation (will be improved by real-time data during processing)
         total_records = self.config['dataset']['records']
-        est_time_per_record = 2.0  # default seconds per record
-        
-        # Try to get better time estimate from checkpoint
-        if self.config.get('checkpoint_file'):
-            try:
-                with open(self.config['checkpoint_file'], 'r') as f:
-                    checkpoint_data = json.load(f)
-                    elapsed_time = checkpoint_data.get('elapsed_time', 0)
-                    current_index = checkpoint_data.get('current_index', 0)
-                    if current_index > 0 and elapsed_time > 0:
-                        actual_time_per_record = elapsed_time / current_index
-                        est_time_per_record = actual_time_per_record
-                        print(f"Using checkpoint-based time estimate: {actual_time_per_record:.2f}s per record")
-            except:
-                pass  # Fall back to default estimate
+        est_time_per_record = self._calculate_time_estimate(total_records)
         
         remaining_records = total_records
         if self.config.get('checkpoint_file'):
@@ -512,17 +557,18 @@ class InteractiveDatasetProcessor:
             except:
                 pass
         
+        # Calculate estimated time with concurrency factor
         if self.config['use_async']:
-            total_est_time = (remaining_records * est_time_per_record) / self.config['concurrent_requests']
+            # Account for concurrency and overlapping batches efficiency
+            concurrency_factor = self.config['concurrent_requests']
+            # Overlapping batches are ~20-40% more efficient
+            efficiency_factor = 1.3
+            total_est_time = (remaining_records * est_time_per_record) / (concurrency_factor * efficiency_factor)
         else:
             total_est_time = remaining_records * est_time_per_record
         
-        if total_est_time > 3600:
-            print(f"Estimated processing time: {total_est_time/3600:.1f} hours")
-        elif total_est_time > 60:
-            print(f"Estimated processing time: {total_est_time/60:.1f} minutes")
-        else:
-            print(f"Estimated processing time: {total_est_time:.0f} seconds")
+        # Display initial conservative estimate
+        self._display_time_estimate(total_est_time, remaining_records, est_time_per_record)
         
         # Handle checkpoint file for specific resume
         resume_from_checkpoint = self.config.get('checkpoint_file') is not None
