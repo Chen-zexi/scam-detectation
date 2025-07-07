@@ -30,6 +30,36 @@ class DatasetLoader:
             # Fill NaN values with empty strings
             self.df = self.df.fillna("")
             
+            # Clean and convert label column with error handling
+            original_count = len(self.df)
+            
+            # Convert labels to numeric, replacing invalid values with NaN
+            self.df['label'] = pd.to_numeric(self.df['label'], errors='coerce')
+            
+            # Remove rows with invalid labels (NaN)
+            invalid_labels = self.df['label'].isna()
+            if invalid_labels.any():
+                invalid_count = invalid_labels.sum()
+                print(f"Warning: Found {invalid_count} rows with invalid labels, removing them")
+                self.df = self.df.dropna(subset=['label']).reset_index(drop=True)
+            
+            # Convert to integer
+            self.df['label'] = self.df['label'].astype(int)
+            
+            # Validate label values are 0 or 1
+            valid_labels = self.df['label'].isin([0, 1])
+            if not valid_labels.all():
+                invalid_values = self.df[~valid_labels]['label'].unique()
+                print(f"Warning: Found invalid label values {invalid_values}, removing rows")
+                self.df = self.df[valid_labels].reset_index(drop=True)
+            
+            final_count = len(self.df)
+            if final_count != original_count:
+                print(f"Dataset cleaned: {original_count} -> {final_count} records ({original_count - final_count} removed)")
+            
+            print(f"Label column processed successfully")
+            print(f"Valid label values: {sorted(self.df['label'].unique())}")
+            
             # Identify features (all columns except 'label')
             self.features = [col for col in self.df.columns if col != 'label']
             

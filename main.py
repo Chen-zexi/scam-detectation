@@ -240,7 +240,7 @@ class InteractiveDatasetProcessor:
 
     def get_vllm_models(self) -> List[str]:
         """Get available models from vLLM endpoint"""
-        host_ip = input("Enter vLLM host IP (default: host_ip configrued in .env): ").strip() or "localhost"
+        host_ip = input("Enter vLLM host IP (default: host_ip configrued in .env): ").strip() or os.getenv("HOST_IP") or "localhost"
         endpoint = f"http://{host_ip}:8000/v1/models"
         
         try:
@@ -371,8 +371,37 @@ class InteractiveDatasetProcessor:
         
         options = {}
         
+        # Sample size configuration
+        print("\nSample Size Configuration:")
+        total_records = self.config['dataset']['records']
+        print(f"Total records in dataset: {total_records:,}")
+        
+        sample_all = input(f"Process all {total_records:,} records? (Y/n): ").strip().lower()
+        if sample_all in ['n', 'no']:
+            while True:
+                try:
+                    sample_input = input(f"Enter sample size (1-{total_records:,}): ").strip()
+                    sample_size = int(sample_input)
+                    if 1 <= sample_size <= total_records:
+                        options['sample_size'] = sample_size
+                        break
+                    else:
+                        print(f"Please enter a number between 1 and {total_records:,}")
+                except ValueError:
+                    print("Please enter a valid number")
+            
+            # Balanced sampling option
+            balanced_choice = input("Use balanced sampling (equal scam/legitimate)? (y/N): ").strip().lower()
+            options['balanced_sample'] = balanced_choice in ['y', 'yes']
+            
+            if options['balanced_sample']:
+                print("Note: Actual sample size may be smaller if dataset has insufficient samples of either class")
+        else:
+            options['sample_size'] = total_records
+            options['balanced_sample'] = False
+        
         # Checkpoint interval
-        default_interval = 1000
+        default_interval = min(1000, options['sample_size'] // 10) if options['sample_size'] < 10000 else 1000
         interval_input = input(f"Checkpoint interval (default: {default_interval}): ").strip()
         options['checkpoint_interval'] = int(interval_input) if interval_input else default_interval
         
@@ -395,8 +424,13 @@ class InteractiveDatasetProcessor:
         
         # Advanced options
         print("\nAdvanced options:")
-        options['enable_thinking'] = input("Enable thinking tokens? (Y/n): ").strip().lower() not in ['n', 'no']
-        options['use_structure_model'] = input("Use structure model for parsing? (Y/n): ").strip().lower() not in ['n', 'no']
+        print("Warning: You should set these to N for most cases.")
+        
+        thinking_choice = input("Enable thinking tokens? (y/N): ").strip().lower()
+        options['enable_thinking'] = thinking_choice in ['y', 'yes']
+        
+        structure_choice = input("Use structure model for parsing? (y/N): ").strip().lower()
+        options['use_structure_model'] = structure_choice in ['y', 'yes']
         
         return options
     
@@ -461,7 +495,19 @@ class InteractiveDatasetProcessor:
         print("\nCONFIGURATION SUMMARY")
         print("="*50)
         print(f"Task: {self.config['task']}")
-        print(f"Dataset: {self.config['dataset']['name']} ({self.config['dataset']['records']:,} records)")
+        print(f"Dataset: {self.config['dataset']['name']} ({self.config['dataset']['records']:,} total records)")
+        
+        # Sample size information
+        sample_size = self.config.get('sample_size', self.config['dataset']['records'])
+        if sample_size == self.config['dataset']['records']:
+            print(f"Sample size: All records ({sample_size:,})")
+        else:
+            print(f"Sample size: {sample_size:,} records")
+            if self.config.get('balanced_sample', False):
+                print(f"Sampling: Balanced (equal scam/legitimate)")
+            else:
+                print(f"Sampling: Random")
+        
         print(f"Provider: {self.config['provider']}")
         print(f"Model: {self.config['model']}")
         if self.config.get('checkpoint_file'):
@@ -545,15 +591,16 @@ class InteractiveDatasetProcessor:
         
         # Initial conservative time estimation (will be improved by real-time data during processing)
         total_records = self.config['dataset']['records']
-        est_time_per_record = self._calculate_time_estimate(total_records)
+        sample_size = self.config.get('sample_size', total_records)
+        est_time_per_record = self._calculate_time_estimate(sample_size)
         
-        remaining_records = total_records
+        remaining_records = sample_size
         if self.config.get('checkpoint_file'):
             try:
                 with open(self.config['checkpoint_file'], 'r') as f:
                     checkpoint_data = json.load(f)
                     current_index = checkpoint_data.get('current_index', 0)
-                    remaining_records = total_records - current_index
+                    remaining_records = sample_size - current_index
             except:
                 pass
         
@@ -600,12 +647,17 @@ class InteractiveDatasetProcessor:
         
         # Create processor based on task type
         try:
+            # Use configured sample size and balanced sampling
+            sample_size = self.config.get('sample_size', total_records)
+            balanced_sample = self.config.get('balanced_sample', False)
+            
             if self.config['task'] == "annotation":
                 processor = LLMAnnotationPipeline(
                     dataset_path=self.config['dataset']['path'],
                     provider=self.config['provider'],
                     model=self.config['model'],
-                    sample_size=total_records,
+                    sample_size=sample_size,
+                    balanced_sample=balanced_sample,
                     content_columns=self.config['content_columns'],
                     output_dir="results/full_dataset",
                     enable_thinking=self.config['enable_thinking'],
@@ -616,7 +668,8 @@ class InteractiveDatasetProcessor:
                     dataset_path=self.config['dataset']['path'],
                     provider=self.config['provider'],
                     model=self.config['model'],
-                    sample_size=total_records,
+                    sample_size=sample_size,
+                    balanced_sample=balanced_sample,
                     content_columns=self.config['content_columns'],
                     enable_thinking=self.config['enable_thinking'],
                     use_structure_model=self.config['use_structure_model']
@@ -624,36 +677,59 @@ class InteractiveDatasetProcessor:
             
             # Run processing
             start_time = time.time()
-            if self.config['use_async']:
-                if self.config['task'] == "annotation":
-                    results = await processor.process_full_dataset_with_checkpoints_async(
-                        checkpoint_interval=self.config['checkpoint_interval'],
-                        checkpoint_dir="checkpoints",
-                        resume_from_checkpoint=resume_from_checkpoint,
-                        concurrent_requests=self.config['concurrent_requests'],
-                        override_compatibility=override_compatibility
-                    )
+            
+            # Determine if we're processing full dataset or sample
+            is_full_dataset = sample_size == total_records
+            
+            if is_full_dataset and (resume_from_checkpoint or self.config.get('checkpoint_file')):
+                # Full dataset with checkpointing
+                if self.config['use_async']:
+                    if self.config['task'] == "annotation":
+                        results = await processor.process_full_dataset_with_checkpoints_async(
+                            checkpoint_interval=self.config['checkpoint_interval'],
+                            checkpoint_dir="checkpoints",
+                            resume_from_checkpoint=resume_from_checkpoint,
+                            concurrent_requests=self.config['concurrent_requests'],
+                            override_compatibility=override_compatibility
+                        )
+                    else:
+                        results = await processor.process_full_dataset_with_checkpoints_async(
+                            checkpoint_interval=self.config['checkpoint_interval'],
+                            checkpoint_dir="checkpoints",
+                            resume_from_checkpoint=resume_from_checkpoint,
+                            concurrent_requests=self.config['concurrent_requests']
+                        )
                 else:
-                    results = await processor.process_full_dataset_with_checkpoints_async(
-                        checkpoint_interval=self.config['checkpoint_interval'],
-                        checkpoint_dir="checkpoints",
-                        resume_from_checkpoint=resume_from_checkpoint,
-                        concurrent_requests=self.config['concurrent_requests']
-                    )
+                    if self.config['task'] == "annotation":
+                        results = processor.process_full_dataset_with_checkpoints(
+                            checkpoint_interval=self.config['checkpoint_interval'],
+                            checkpoint_dir="checkpoints",
+                            resume_from_checkpoint=resume_from_checkpoint,
+                            override_compatibility=override_compatibility
+                        )
+                    else:
+                        results = processor.process_full_dataset_with_checkpoints(
+                            checkpoint_interval=self.config['checkpoint_interval'],
+                            checkpoint_dir="checkpoints",
+                            resume_from_checkpoint=resume_from_checkpoint
+                        )
             else:
-                if self.config['task'] == "annotation":
-                    results = processor.process_full_dataset_with_checkpoints(
-                        checkpoint_interval=self.config['checkpoint_interval'],
-                        checkpoint_dir="checkpoints",
-                        resume_from_checkpoint=resume_from_checkpoint,
-                        override_compatibility=override_compatibility
-                    )
+                # Sample processing (no checkpointing for samples)
+                print("\nProcessing sample dataset...")
+                if self.config['use_async']:
+                    if self.config['task'] == "annotation":
+                        results = await processor.run_full_annotation_async(
+                            concurrent_requests=self.config['concurrent_requests']
+                        )
+                    else:
+                        results = await processor.run_full_evaluation_async(
+                            concurrent_requests=self.config['concurrent_requests']
+                        )
                 else:
-                    results = processor.process_full_dataset_with_checkpoints(
-                        checkpoint_interval=self.config['checkpoint_interval'],
-                        checkpoint_dir="checkpoints",
-                        resume_from_checkpoint=resume_from_checkpoint
-                    )
+                    if self.config['task'] == "annotation":
+                        results = processor.run_full_annotation()
+                    else:
+                        results = processor.run_full_evaluation()
             
             # Clean up temp checkpoint file if created
             if temp_checkpoint_name and Path(temp_checkpoint_name).exists():
@@ -675,15 +751,51 @@ class InteractiveDatasetProcessor:
 
     def print_results_summary(self, results: Dict):
         """Print summary of processing results"""
-        summary = results['summary']
-        save_paths = results['save_paths']
+        # Handle different result formats (checkpoint vs non-checkpoint)
+        if 'summary' in results:
+            # Checkpoint format
+            summary = results['summary']
+            save_paths = results['save_paths']
+        else:
+            # Non-checkpoint format (from run_full_evaluation)
+            metrics = results.get('metrics', {})
+            save_paths = results.get('save_paths', {})
+            dataset_info = results.get('dataset_info', {})
+            
+            # Convert metrics to summary format
+            summary = {
+                'total_records': len(results.get('results', [])),
+                'successful_evaluations': metrics.get('successfully_processed', 0),
+                'correct_predictions': metrics.get('correct_predictions', 0),
+                'accuracy': metrics.get('accuracy', 0),
+                'success_rate': 1.0 if metrics.get('successfully_processed', 0) > 0 else 0
+            }
+            
+            # For annotations
+            if self.config['task'] == 'annotation':
+                successful = sum(1 for r in results.get('results', []) if r.get('annotation_success', True))
+                usable = sum(1 for r in results.get('results', []) if r.get('usability', True))
+                total = len(results.get('results', []))
+                summary = {
+                    'total_records': total,
+                    'successful_annotations': successful,
+                    'usable_annotations': usable,
+                    'success_rate': successful / total if total > 0 else 0,
+                    'usability_rate': usable / total if total > 0 else 0
+                }
         
         print(f"\n{'='*60}")
         print("PROCESSING COMPLETED SUCCESSFULLY")
         print(f"{'='*60}")
         
-        print(f"Results saved to: {save_paths['results_file']}")
-        print(f"Summary saved to: {save_paths['summary_file']}")
+        # Handle different save_paths formats
+        if 'results_file' in save_paths:
+            print(f"Results saved to: {save_paths['results_file']}")
+        elif 'results_directory' in save_paths:
+            print(f"Results saved to: {save_paths['results_directory']}")
+            
+        if save_paths.get('summary_file'):
+            print(f"Summary saved to: {save_paths['summary_file']}")
         if save_paths.get('checkpoint_file'):
             print(f"Final checkpoint: {save_paths['checkpoint_file']}")
         
@@ -710,11 +822,17 @@ class InteractiveDatasetProcessor:
         self.config['dataset'] = self.choose_dataset()
         self.config['provider'] = self.choose_provider()
         self.config['model'] = self.choose_model(self.config['provider'])
-        self.config['checkpoint_file'] = self.choose_checkpoint()
         
-        # Configure processing options
+        # Configure processing options (includes sample size)
         processing_options = self.configure_processing_options()
         self.config.update(processing_options)
+        
+        # Only offer checkpoint options if processing full dataset
+        if self.config.get('sample_size', self.config['dataset']['records']) == self.config['dataset']['records']:
+            self.config['checkpoint_file'] = self.choose_checkpoint()
+        else:
+            self.config['checkpoint_file'] = None
+            print("\nNote: Checkpointing is only available when processing the full dataset.")
         
         # Validate checkpoint compatibility if resuming
         self.validate_checkpoint_compatibility()
