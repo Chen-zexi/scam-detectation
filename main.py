@@ -137,20 +137,23 @@ class InteractiveDatasetProcessor:
         return datasets
 
     def choose_task(self) -> str:
-        """Let user choose between annotation and evaluation"""
+        """Let user choose between annotation, evaluation, and transcript generation"""
         print("\nSTEP 1: Choose Task Type")
         print("-" * 40)
         print("1. Annotation - Generate structured annotations for datasets")
         print("2. Evaluation - Evaluate model performance on labeled datasets")
+        print("3. Transcript Generation - Generate realistic phone conversation transcripts")
         
         while True:
-            choice = input("\nSelect task type (1 or 2): ").strip()
+            choice = input("\nSelect task type (1, 2, or 3): ").strip()
             if choice == "1":
                 return "annotation"
             elif choice == "2":
                 return "evaluation"
+            elif choice == "3":
+                return "transcript_generation"
             else:
-                print("Please enter 1 or 2")
+                print("Please enter 1, 2, or 3")
 
     def choose_dataset(self) -> Dict[str, str]:
         """Let user choose from available datasets"""
@@ -380,11 +383,13 @@ class InteractiveDatasetProcessor:
         async_choice = input("Use async processing for faster execution? (Y/n): ").strip().lower()
         options['use_async'] = async_choice not in ['n', 'no']
         
+        # Always set concurrent_requests (default to 1 for sequential processing)
+        default_concurrent = 20 if options['use_async'] else 1
         if options['use_async']:
-            # Concurrent requests
-            default_concurrent = 20
             concurrent_input = input(f"Number of concurrent requests (default: {default_concurrent}): ").strip()
             options['concurrent_requests'] = int(concurrent_input) if concurrent_input else default_concurrent
+        else:
+            options['concurrent_requests'] = 1  # Sequential processing
         
         # Content columns
         content_input = input("Content columns (comma-separated, default: auto-detect): ").strip()
@@ -611,7 +616,7 @@ class InteractiveDatasetProcessor:
                     enable_thinking=self.config['enable_thinking'],
                     use_structure_model=self.config['use_structure_model']
                 )
-            else:  # evaluation
+            elif self.config['task'] == "evaluation":
                 processor = ScamDetectionEvaluator(
                     dataset_path=self.config['dataset']['path'],
                     provider=self.config['provider'],
@@ -621,10 +626,29 @@ class InteractiveDatasetProcessor:
                     enable_thinking=self.config['enable_thinking'],
                     use_structure_model=self.config['use_structure_model']
                 )
+            else:  # transcript_generation
+                from src.transcript_generator import TranscriptGenerator
+                processor = TranscriptGenerator(
+                    sample_size=total_records,
+                    output_dir="results",
+                    enable_thinking=self.config['enable_thinking'],
+                    use_structure_model=self.config['use_structure_model'],
+                    selected_model=self.config['model'],
+                    selected_provider=self.config['provider']
+                )
             
             # Run processing
             start_time = time.time()
-            if self.config['use_async']:
+            if self.config['task'] == "transcript_generation":
+                # Transcript generation is always async
+                results = await processor.process_full_generation_with_checkpoints(
+                    checkpoint_interval=self.config['checkpoint_interval'],
+                    checkpoint_dir="checkpoints",
+                    resume_from_checkpoint=resume_from_checkpoint,
+                    concurrent_requests=self.config['concurrent_requests'],
+                    override_compatibility=override_compatibility
+                )
+            elif self.config['use_async']:
                 if self.config['task'] == "annotation":
                     results = await processor.process_full_dataset_with_checkpoints_async(
                         checkpoint_interval=self.config['checkpoint_interval'],
@@ -664,7 +688,19 @@ class InteractiveDatasetProcessor:
                     pass  # Ignore cleanup errors
             
             # Print results
-            self.print_results_summary(results)
+            if self.config['task'] == "transcript_generation":
+                # For transcript generation, results have a different structure
+                if 'status' in results and results['status'] == 'completed':
+                    print(f"\nTranscript generation completed successfully!")
+                    if 'results' in results:
+                        save_results = results['results']
+                        print(f"Generated: {save_results.get('success_count', 0)} transcripts")
+                        print(f"Errors: {save_results.get('error_count', 0)} transcripts")
+                        print(f"Results saved to: {save_results.get('detailed_results', 'Unknown')}")
+                else:
+                    print(f"\nTranscript generation failed: {results.get('error', 'Unknown error')}")
+            else:
+                self.print_results_summary(results)
             
         except KeyboardInterrupt:
             print("\n\nProcessing interrupted by user")
@@ -695,11 +731,17 @@ class InteractiveDatasetProcessor:
             print(f"  Correct predictions: {summary['correct_predictions']:,}")
             print(f"  Accuracy: {summary['accuracy']:.2%}")
             print(f"  Success rate: {summary['success_rate']:.2%}")
-        else:  # annotation
+        elif self.config['task'] == 'annotation':
             print(f"  Successful annotations: {summary['successful_annotations']:,}")
             print(f"  Usable annotations: {summary['usable_annotations']:,}")
             print(f"  Success rate: {summary['success_rate']:.2%}")
             print(f"  Usability rate: {summary['usability_rate']:.2%}")
+        else:  # transcript_generation
+            print(f"  Successful generations: {summary.get('success_count', 0):,}")
+            print(f"  Errors: {summary.get('error_count', 0):,}")
+            print(f"  Success rate: {summary.get('success_rate', 0):.2%}")
+            if 'category_distribution' in summary:
+                print(f"  Category distribution: {summary['category_distribution']}")
 
     async def run(self):
         """Main interactive workflow"""
@@ -707,7 +749,32 @@ class InteractiveDatasetProcessor:
         
         # Step-by-step configuration
         self.config['task'] = self.choose_task()
-        self.config['dataset'] = self.choose_dataset()
+        
+        # For transcript generation, we don't need to select an existing dataset
+        if self.config['task'] == "transcript_generation":
+            # Get sample size for transcript generation
+            print("\nSTEP 2: Configure Transcript Generation")
+            print("-" * 40)
+            while True:
+                try:
+                    sample_size = int(input("Enter number of transcripts to generate (default: 1000): ").strip() or "1000")
+                    if sample_size > 0:
+                        break
+                    else:
+                        print("Please enter a positive number")
+                except ValueError:
+                    print("Please enter a valid number")
+            
+            self.config['dataset'] = {
+                'path': 'generated_transcripts',
+                'name': 'Generated Transcripts',
+                'directory': 'results',
+                'columns': ['transcript', 'classification', 'category_assigned'],
+                'records': sample_size
+            }
+        else:
+            self.config['dataset'] = self.choose_dataset()
+            
         self.config['provider'] = self.choose_provider()
         self.config['model'] = self.choose_model(self.config['provider'])
         self.config['checkpoint_file'] = self.choose_checkpoint()
