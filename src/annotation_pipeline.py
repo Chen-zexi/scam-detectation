@@ -221,8 +221,8 @@ class LLMAnnotationPipeline:
         print("STARTING LLM ANNOTATION PROCESS")
         print("="*80)
         
-        for i, (_, row) in enumerate(sample_df.iterrows()):
-            print(f"\nAnnotating record {i+1}/{len(sample_df)}...")
+        # Use tqdm for progress tracking
+        for i, (_, row) in enumerate(tqdm(sample_df.iterrows(), total=len(sample_df), desc="Annotating")):
             
             # Create annotation prompt with correct label
             user_prompt = self.prompt_generator.create_annotation_prompt(row.to_dict(), str(row['label']))
@@ -249,15 +249,12 @@ class LLMAnnotationPipeline:
                 annotations.append(annotation)
                 
                 actual_class = 'Scam' if row['label'] == 1 else 'Legitimate'
-                usability_status = 'Usable' if response.usability == 1 else 'Not usable'
-                print(f"Class: {actual_class}")
-                print(f"Confidence: {response.confidence}")
-                print(f"Usability: {usability_status}")
-                print(f"Key indicators: {len(response.key_indicators)}")
-                print(f"Explanation length: {len(response.explanation)} chars")
+                usability_status = 'Usable' if response.usability else 'Not usable'
+                tqdm.write(f"  Record {i+1}: Class={actual_class}, Confidence={response.confidence}, "
+                          f"Usability={usability_status}, Indicators={len(response.key_indicators)}")
                 
             except Exception as e:
-                print(f"  Error annotating record {i+1}: {e}")
+                tqdm.write(f"  Error annotating record {i+1}: {e}")
                 annotation = self._create_error_annotation_record(i+1, row, str(e))
                 annotations.append(annotation)
         
@@ -321,16 +318,19 @@ class LLMAnnotationPipeline:
                     annotation = self._create_annotation_record(i+1, row, response)
                     
                     actual_class = 'Scam' if row['label'] == 1 else 'Legitimate'
-                    usability_status = 'Usable' if response.usability == 1 else 'Not usable'
-                    print(f"Record {i+1} - Class: {actual_class}, Confidence: {response.confidence}, "
-                          f"Usability: {usability_status}, Indicators: {len(response.key_indicators)}")
+                    usability_status = 'Usable' if response.usability else 'Not usable'
+                    tqdm.write(f"Record {i+1} - Class: {actual_class}, Confidence: {response.confidence}, "
+                              f"Usability: {usability_status}, Indicators: {len(response.key_indicators)}")
                     
                     return annotation
                     
                 except Exception as e:
-                    print(f"  Error annotating record {i+1}: {e}")
+                    tqdm.write(f"  Error annotating record {i+1}: {e}")
                     annotation = self._create_error_annotation_record(i+1, row, str(e))
                     return annotation
+                finally:
+                    # Update progress bar after each record
+                    pbar.update(1)
         
         # Create tasks for all records
         tasks = []
@@ -343,11 +343,14 @@ class LLMAnnotationPipeline:
         annotations = await asyncio.gather(*tasks, return_exceptions=False)
         end_time = time.time()
         
+        # Close progress bar
+        pbar.close()
+        
         # Handle any exceptions that might have been returned
         valid_annotations = []
         for i, annotation in enumerate(annotations):
             if isinstance(annotation, Exception):
-                print(f"Exception in record {i+1}: {annotation}")
+                tqdm.write(f"Exception in record {i+1}: {annotation}")
                 # Create error record
                 row = sample_df.iloc[i]
                 error_annotation = self._create_error_annotation_record(i+1, row, str(annotation))

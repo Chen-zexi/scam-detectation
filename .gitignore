@@ -30,6 +30,8 @@ checkpoints/*
 *.tmp
 *.temp
 
+CLAUDE.md
+
 # Large datasets
 *.zip
 *.csv

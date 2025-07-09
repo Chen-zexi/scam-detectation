@@ -20,9 +20,9 @@ def email_eval():
     print("="*80)
     
     dataset_path = "data/cleaned/unified_phishing_email_dataset.csv"
-    provider = "lm-studio"
-    model = "unsloth/qwen3-30b-a3b"
-    sample_size = 5
+    provider = "openai"
+    model = "gpt-4.1-mini"
+    sample_size = 10
     
     if not Path(dataset_path).exists():
         print(f"Dataset not found: {dataset_path}")

@@ -131,8 +131,8 @@ class ScamDetectionEvaluator:
         print("STARTING SCAM DETECTION EVALUATION")
         print("="*80)
         
-        for i, (_, row) in enumerate(sample_df.iterrows()):
-            print(f"\nEvaluating record {i+1}/{len(sample_df)}...")
+        # Use tqdm for progress tracking
+        for i, (_, row) in enumerate(tqdm(sample_df.iterrows(), total=len(sample_df), desc="Evaluating")):
             
             # Create user prompt with specified content features
             user_prompt = self.prompt_generator.create_user_prompt(row.to_dict())
@@ -147,10 +147,10 @@ class ScamDetectionEvaluator:
                         import re
                         # Remove everything between <think> and </think> tags
                         response = re.sub(r'<think>.*?</think>', '', response, flags=re.DOTALL).strip()
-                        print(f'Response after removing thinking tokens: {response}')
+                        # Response cleaned of thinking tokens
                     
                     response = parse_structured_output(self.structure_model, response)
-                    print(f'\nParsed response: {response}')
+                    # Response parsed successfully
                 else:
                     # Make API call
                     response = make_api_call(self.llm, system_prompt, user_prompt, structure_model=False)
@@ -158,7 +158,7 @@ class ScamDetectionEvaluator:
                 # Extract prediction
                 predicted_scam = response.Phishing  # Note: API still uses "Phishing" key for compatibility
                 predicted_label = 1 if predicted_scam else 0
-                actual_label = row['label']
+                actual_label = int(row['label'])  # Should be safe since data is pre-cleaned
                 
                 # Calculate if prediction is correct
                 is_correct = predicted_label == actual_label
@@ -168,13 +168,13 @@ class ScamDetectionEvaluator:
                 
                 results.append(result)
                 
-                print(f"  Actual: {'Scam' if actual_label == 1 else 'Legitimate'}")
-                print(f"  Predicted: {'Scam' if predicted_label == 1 else 'Legitimate'}")
-                print(f"  Correct: {is_correct}")
-                print(f"  Reason: {response.Reason[:100]}...")
+                # Use tqdm.write to avoid interfering with progress bar
+                tqdm.write(f"  Record {i+1}: Actual={'Scam' if actual_label == 1 else 'Legitimate'}, "
+                          f"Predicted={'Scam' if predicted_label == 1 else 'Legitimate'}, "
+                          f"Correct={is_correct}")
                 
             except Exception as e:
-                print(f"  Error processing record {i+1}: {e}")
+                tqdm.write(f"  Error processing record {i+1}: {e}")
                 result = self._create_error_result_record(row, str(e))
                 results.append(result)
         
@@ -209,9 +209,13 @@ class ScamDetectionEvaluator:
         # Create semaphore to limit concurrent requests
         semaphore = asyncio.Semaphore(concurrent_requests)
         
+        # Create progress bar for async processing
+        pbar = tqdm(total=len(sample_df), desc="Evaluating (async)")
+        
         async def evaluate_single_record(i: int, row: pd.Series) -> Dict[str, Any]:
             async with semaphore:
-                print(f"Evaluating record {i+1}/{len(sample_df)}...")
+                # Update progress bar description
+                pbar.set_description(f"Evaluating record {i+1}/{len(sample_df)}")
                 
                 # Create user prompt with specified content features
                 user_prompt = self.prompt_generator.create_user_prompt(row.to_dict())
@@ -227,10 +231,10 @@ class ScamDetectionEvaluator:
                             import re
                             # Remove everything between <think> and </think> tags
                             response = re.sub(r'<think>.*?</think>', '', response, flags=re.DOTALL).strip()
-                            print(f'Response after removing thinking tokens: {response}')
+                            # Response cleaned of thinking tokens
                         
                         response = await parse_structured_output_async(self.structure_model, response)
-                        print(f'\nParsed response: {response}')
+                        # Response parsed successfully
                     else:
                         # Make async API call
                         response = await make_api_call_async(self.llm, system_prompt, user_prompt, structure_model=False)
@@ -238,7 +242,7 @@ class ScamDetectionEvaluator:
                     # Extract prediction
                     predicted_scam = response.Phishing  # Note: API still uses "Phishing" key for compatibility
                     predicted_label = 1 if predicted_scam else 0
-                    actual_label = row['label']
+                    actual_label = int(row['label'])  # Should be safe since data is pre-cleaned
                     
                     # Calculate if prediction is correct
                     is_correct = predicted_label == actual_label
@@ -246,15 +250,18 @@ class ScamDetectionEvaluator:
                     # Create comprehensive result record
                     result = self._create_result_record(row, predicted_label, is_correct, response.Reason)
                     
-                    print(f"Record {i+1} - Actual: {'Scam' if actual_label == 1 else 'Legitimate'}, "
-                          f"Predicted: {'Scam' if predicted_label == 1 else 'Legitimate'}, Correct: {is_correct}")
+                    tqdm.write(f"Record {i+1} - Actual: {'Scam' if actual_label == 1 else 'Legitimate'}, "
+                              f"Predicted: {'Scam' if predicted_label == 1 else 'Legitimate'}, Correct: {is_correct}")
                     
                     return result
                     
                 except Exception as e:
-                    print(f"  Error processing record {i+1}: {e}")
+                    tqdm.write(f"  Error processing record {i+1}: {e}")
                     result = self._create_error_result_record(row, str(e))
                     return result
+                finally:
+                    # Update progress bar after each record
+                    pbar.update(1)
         
         # Create tasks for all records
         tasks = []
@@ -267,11 +274,14 @@ class ScamDetectionEvaluator:
         results = await asyncio.gather(*tasks, return_exceptions=False)
         end_time = time.time()
         
+        # Close progress bar
+        pbar.close()
+        
         # Handle any exceptions that might have been returned
         valid_results = []
         for i, result in enumerate(results):
             if isinstance(result, Exception):
-                print(f"Exception in record {i+1}: {result}")
+                tqdm.write(f"Exception in record {i+1}: {result}")
                 # Create error record
                 row = sample_df.iloc[i]
                 error_result = self._create_error_result_record(row, str(result))
@@ -291,9 +301,12 @@ class ScamDetectionEvaluator:
                              is_correct: bool, 
                              llm_reason: str) -> Dict[str, Any]:
         """Create a comprehensive result record including original data"""
+        # Label should be clean at this point due to pre-filtering
+        actual_label = int(row['label'])
+        
         result = {
-            'actual_label': row['label'],
-            'actual_class': 'Scam' if row['label'] == 1 else 'Legitimate',
+            'actual_label': actual_label,
+            'actual_class': 'Scam' if actual_label == 1 else 'Legitimate',
             'predicted_label': predicted_label,
             'predicted_class': 'Scam' if predicted_label == 1 else 'Legitimate',
             'is_correct': is_correct,
@@ -313,9 +326,12 @@ class ScamDetectionEvaluator:
     
     def _create_error_result_record(self, row: pd.Series, error_message: str) -> Dict[str, Any]:
         """Create an error result record"""
+        # Label should be clean at this point due to pre-filtering
+        actual_label = int(row['label'])
+        
         result = {
-            'actual_label': row['label'],
-            'actual_class': 'Scam' if row['label'] == 1 else 'Legitimate',
+            'actual_label': actual_label,
+            'actual_class': 'Scam' if actual_label == 1 else 'Legitimate',
             'predicted_label': None,
             'predicted_class': 'Error',
             'is_correct': False,
@@ -1093,6 +1109,9 @@ class ScamDetectionEvaluator:
                     # Save checkpoint periodically at fixed intervals (like sync version)
                     if self.current_index % checkpoint_interval == 0:
                         self.save_checkpoint(checkpoint_dir)
+                        
+                        # Calculate session progress for checkpoint messaging
+                        records_processed_this_session = self.current_index - session_start_index
                         
                         # Update checkpoint with enhanced timing data
                         try:

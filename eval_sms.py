@@ -20,9 +20,9 @@ def sms_eval():
     print("="*80)
     
     dataset_path = "data/cleaned/phishing_sms_dataset.csv"
-    provider = "lm-studio"
-    model = "unsloth/qwen3-30b-a3b"
-    sample_size = 5572
+    provider = "openai"
+    model = "gpt-4.1-mini"
+    sample_size = 10
     
     if not Path(dataset_path).exists():
         print(f"Dataset not found: {dataset_path}")
@@ -38,7 +38,7 @@ def sms_eval():
             sample_size=sample_size,
             random_state=42,
             content_columns=['message'],
-            balanced_sample=False
+            balanced_sample=True
         )
         
         # Run evaluation
