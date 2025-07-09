@@ -1,0 +1,23 @@
+TRANSCRIPT GENERATION SUMMARY
+==================================================
+
+Total generated: 14
+Successful: 14
+Errors: 0
+Success rate: 100.00%
+
+Category Distribution:
+  legitimate_half_b: 3
+  legitimate_half_a: 3
+  financial_scam: 2
+  urgency_scam: 2
+  tech_scam: 2
+  borderline: 1
+  subtle_scam: 1
+
+Classification Distribution:
+  LEGITIMATE: 7
+  OBVIOUS_SCAM: 7
+
+Average conversation length: 278.3 words
+Generation completed: 20250707_023147

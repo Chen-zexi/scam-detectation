@@ -137,20 +137,23 @@ class InteractiveDatasetProcessor:
         return datasets
 
     def choose_task(self) -> str:
-        """Let user choose between annotation and evaluation"""
+        """Let user choose between annotation, evaluation, and transcript generation"""
         print("\nSTEP 1: Choose Task Type")
         print("-" * 40)
         print("1. Annotation - Generate structured annotations for datasets")
         print("2. Evaluation - Evaluate model performance on labeled datasets")
+        print("3. Transcript Generation - Generate realistic phone conversation transcripts")
         
         while True:
-            choice = input("\nSelect task type (1 or 2): ").strip()
+            choice = input("\nSelect task type (1, 2, or 3): ").strip()
             if choice == "1":
                 return "annotation"
             elif choice == "2":
                 return "evaluation"
+            elif choice == "3":
+                return "transcript_generation"
             else:
-                print("Please enter 1 or 2")
+                print("Please enter 1, 2, or 3")
 
     def choose_dataset(self) -> Dict[str, str]:
         """Let user choose from available datasets"""
@@ -371,34 +374,40 @@ class InteractiveDatasetProcessor:
         
         options = {}
         
-        # Sample size configuration
-        print("\nSample Size Configuration:")
-        total_records = self.config['dataset']['records']
-        print(f"Total records in dataset: {total_records:,}")
-        
-        sample_all = input(f"Process all {total_records:,} records? (Y/n): ").strip().lower()
-        if sample_all in ['n', 'no']:
-            while True:
-                try:
-                    sample_input = input(f"Enter sample size (1-{total_records:,}): ").strip()
-                    sample_size = int(sample_input)
-                    if 1 <= sample_size <= total_records:
-                        options['sample_size'] = sample_size
-                        break
-                    else:
-                        print(f"Please enter a number between 1 and {total_records:,}")
-                except ValueError:
-                    print("Please enter a valid number")
+        # Sample size configuration (only for annotation and evaluation)
+        if self.config['task'] in ['annotation', 'evaluation']:
+            print("\nSample Size Configuration:")
+            total_records = self.config['dataset']['records']
+            print(f"Total records in dataset: {total_records:,}")
             
-            # Balanced sampling option
-            balanced_choice = input("Use balanced sampling (equal scam/legitimate)? (y/N): ").strip().lower()
-            options['balanced_sample'] = balanced_choice in ['y', 'yes']
-            
-            if options['balanced_sample']:
-                print("Note: Actual sample size may be smaller if dataset has insufficient samples of either class")
+            sample_all = input(f"Process all {total_records:,} records? (Y/n): ").strip().lower()
+            if sample_all in ['n', 'no']:
+                while True:
+                    try:
+                        sample_input = input(f"Enter sample size (1-{total_records:,}): ").strip()
+                        sample_size = int(sample_input)
+                        if 1 <= sample_size <= total_records:
+                            options['sample_size'] = sample_size
+                            break
+                        else:
+                            print(f"Please enter a number between 1 and {total_records:,}")
+                    except ValueError:
+                        print("Please enter a valid number")
+                
+                # Balanced sampling option
+                balanced_choice = input("Use balanced sampling (equal scam/legitimate)? (y/N): ").strip().lower()
+                options['balanced_sample'] = balanced_choice in ['y', 'yes']
+                
+                if options['balanced_sample']:
+                    print("Note: Actual sample size may be smaller if dataset has insufficient samples of either class")
+            else:
+                options['sample_size'] = total_records
+                options['balanced_sample'] = False
         else:
-            options['sample_size'] = total_records
+            # For transcript generation, use the configured number of transcripts
+            options['sample_size'] = self.config['dataset']['records']
             options['balanced_sample'] = False
+            print(f"\nTranscript Generation: Will generate {options['sample_size']:,} transcripts")
         
         # Checkpoint interval
         default_interval = min(1000, options['sample_size'] // 10) if options['sample_size'] < 10000 else 1000
@@ -409,17 +418,23 @@ class InteractiveDatasetProcessor:
         async_choice = input("Use async processing for faster execution? (Y/n): ").strip().lower()
         options['use_async'] = async_choice not in ['n', 'no']
         
+        # Always set concurrent_requests (default to 1 for sequential processing)
+        default_concurrent = 20 if options['use_async'] else 1
         if options['use_async']:
-            # Concurrent requests
-            default_concurrent = 20
             concurrent_input = input(f"Number of concurrent requests (default: {default_concurrent}): ").strip()
             options['concurrent_requests'] = int(concurrent_input) if concurrent_input else default_concurrent
-        
-        # Content columns
-        content_input = input("Content columns (comma-separated, default: auto-detect): ").strip()
-        if content_input:
-            options['content_columns'] = [col.strip() for col in content_input.split(',')]
         else:
+            options['concurrent_requests'] = 1  # Sequential processing
+        
+        # Content columns (only for annotation and evaluation)
+        if self.config['task'] in ['annotation', 'evaluation']:
+            content_input = input("Content columns (comma-separated, default: auto-detect): ").strip()
+            if content_input:
+                options['content_columns'] = [col.strip() for col in content_input.split(',')]
+            else:
+                options['content_columns'] = None
+        else:
+            # Transcript generation doesn't use content columns
             options['content_columns'] = None
         
         # Advanced options
@@ -495,18 +510,22 @@ class InteractiveDatasetProcessor:
         print("\nCONFIGURATION SUMMARY")
         print("="*50)
         print(f"Task: {self.config['task']}")
-        print(f"Dataset: {self.config['dataset']['name']} ({self.config['dataset']['records']:,} total records)")
         
-        # Sample size information
-        sample_size = self.config.get('sample_size', self.config['dataset']['records'])
-        if sample_size == self.config['dataset']['records']:
-            print(f"Sample size: All records ({sample_size:,})")
+        if self.config['task'] == 'transcript_generation':
+            print(f"Transcripts to generate: {self.config['dataset']['records']:,}")
         else:
-            print(f"Sample size: {sample_size:,} records")
-            if self.config.get('balanced_sample', False):
-                print(f"Sampling: Balanced (equal scam/legitimate)")
+            print(f"Dataset: {self.config['dataset']['name']} ({self.config['dataset']['records']:,} total records)")
+            
+            # Sample size information (only for annotation and evaluation)
+            sample_size = self.config.get('sample_size', self.config['dataset']['records'])
+            if sample_size == self.config['dataset']['records']:
+                print(f"Sample size: All records ({sample_size:,})")
             else:
-                print(f"Sampling: Random")
+                print(f"Sample size: {sample_size:,} records")
+                if self.config.get('balanced_sample', False):
+                    print(f"Sampling: Balanced (equal scam/legitimate)")
+                else:
+                    print(f"Sampling: Random")
         
         print(f"Provider: {self.config['provider']}")
         print(f"Model: {self.config['model']}")
@@ -663,7 +682,7 @@ class InteractiveDatasetProcessor:
                     enable_thinking=self.config['enable_thinking'],
                     use_structure_model=self.config['use_structure_model']
                 )
-            else:  # evaluation
+            elif self.config['task'] == "evaluation":
                 processor = ScamDetectionEvaluator(
                     dataset_path=self.config['dataset']['path'],
                     provider=self.config['provider'],
@@ -674,62 +693,83 @@ class InteractiveDatasetProcessor:
                     enable_thinking=self.config['enable_thinking'],
                     use_structure_model=self.config['use_structure_model']
                 )
+            else:  # transcript_generation
+                from src.transcript_generator import TranscriptGenerator
+                processor = TranscriptGenerator(
+                    sample_size=total_records,
+                    output_dir="results",
+                    enable_thinking=self.config['enable_thinking'],
+                    use_structure_model=self.config['use_structure_model'],
+                    selected_model=self.config['model'],
+                    selected_provider=self.config['provider']
+                )
             
             # Run processing
             start_time = time.time()
             
-            # Determine if we're processing full dataset or sample
-            is_full_dataset = sample_size == total_records
-            
-            if is_full_dataset and (resume_from_checkpoint or self.config.get('checkpoint_file')):
-                # Full dataset with checkpointing
-                if self.config['use_async']:
-                    if self.config['task'] == "annotation":
-                        results = await processor.process_full_dataset_with_checkpoints_async(
-                            checkpoint_interval=self.config['checkpoint_interval'],
-                            checkpoint_dir="checkpoints",
-                            resume_from_checkpoint=resume_from_checkpoint,
-                            concurrent_requests=self.config['concurrent_requests'],
-                            override_compatibility=override_compatibility
-                        )
-                    else:
-                        results = await processor.process_full_dataset_with_checkpoints_async(
-                            checkpoint_interval=self.config['checkpoint_interval'],
-                            checkpoint_dir="checkpoints",
-                            resume_from_checkpoint=resume_from_checkpoint,
-                            concurrent_requests=self.config['concurrent_requests']
-                        )
-                else:
-                    if self.config['task'] == "annotation":
-                        results = processor.process_full_dataset_with_checkpoints(
-                            checkpoint_interval=self.config['checkpoint_interval'],
-                            checkpoint_dir="checkpoints",
-                            resume_from_checkpoint=resume_from_checkpoint,
-                            override_compatibility=override_compatibility
-                        )
-                    else:
-                        results = processor.process_full_dataset_with_checkpoints(
-                            checkpoint_interval=self.config['checkpoint_interval'],
-                            checkpoint_dir="checkpoints",
-                            resume_from_checkpoint=resume_from_checkpoint
-                        )
+            # Handle transcript generation separately as it's always async
+            if self.config['task'] == "transcript_generation":
+                # Transcript generation is always async
+                results = await processor.process_full_generation_with_checkpoints(
+                    checkpoint_interval=self.config['checkpoint_interval'],
+                    checkpoint_dir="checkpoints",
+                    resume_from_checkpoint=resume_from_checkpoint,
+                    concurrent_requests=self.config['concurrent_requests'],
+                    override_compatibility=override_compatibility
+                )
             else:
-                # Sample processing (no checkpointing for samples)
-                print("\nProcessing sample dataset...")
-                if self.config['use_async']:
-                    if self.config['task'] == "annotation":
-                        results = await processor.run_full_annotation_async(
-                            concurrent_requests=self.config['concurrent_requests']
-                        )
+                # Determine if we're processing full dataset or sample
+                is_full_dataset = sample_size == total_records
+                
+                if is_full_dataset and (resume_from_checkpoint or self.config.get('checkpoint_file')):
+                    # Full dataset with checkpointing
+                    if self.config['use_async']:
+                        if self.config['task'] == "annotation":
+                            results = await processor.process_full_dataset_with_checkpoints_async(
+                                checkpoint_interval=self.config['checkpoint_interval'],
+                                checkpoint_dir="checkpoints",
+                                resume_from_checkpoint=resume_from_checkpoint,
+                                concurrent_requests=self.config['concurrent_requests'],
+                                override_compatibility=override_compatibility
+                            )
+                        else:
+                            results = await processor.process_full_dataset_with_checkpoints_async(
+                                checkpoint_interval=self.config['checkpoint_interval'],
+                                checkpoint_dir="checkpoints",
+                                resume_from_checkpoint=resume_from_checkpoint,
+                                concurrent_requests=self.config['concurrent_requests']
+                            )
                     else:
-                        results = await processor.run_full_evaluation_async(
-                            concurrent_requests=self.config['concurrent_requests']
-                        )
+                        if self.config['task'] == "annotation":
+                            results = processor.process_full_dataset_with_checkpoints(
+                                checkpoint_interval=self.config['checkpoint_interval'],
+                                checkpoint_dir="checkpoints",
+                                resume_from_checkpoint=resume_from_checkpoint,
+                                override_compatibility=override_compatibility
+                            )
+                        else:
+                            results = processor.process_full_dataset_with_checkpoints(
+                                checkpoint_interval=self.config['checkpoint_interval'],
+                                checkpoint_dir="checkpoints",
+                                resume_from_checkpoint=resume_from_checkpoint
+                            )
                 else:
-                    if self.config['task'] == "annotation":
-                        results = processor.run_full_annotation()
+                    # Sample processing (no checkpointing for samples)
+                    print("\nProcessing sample dataset...")
+                    if self.config['use_async']:
+                        if self.config['task'] == "annotation":
+                            results = await processor.run_full_annotation_async(
+                                concurrent_requests=self.config['concurrent_requests']
+                            )
+                        else:
+                            results = await processor.run_full_evaluation_async(
+                                concurrent_requests=self.config['concurrent_requests']
+                            )
                     else:
-                        results = processor.run_full_evaluation()
+                        if self.config['task'] == "annotation":
+                            results = processor.run_full_annotation()
+                        else:
+                            results = processor.run_full_evaluation()
             
             # Clean up temp checkpoint file if created
             if temp_checkpoint_name and Path(temp_checkpoint_name).exists():
@@ -740,7 +780,19 @@ class InteractiveDatasetProcessor:
                     pass  # Ignore cleanup errors
             
             # Print results
-            self.print_results_summary(results)
+            if self.config['task'] == "transcript_generation":
+                # For transcript generation, results have a different structure
+                if 'status' in results and results['status'] == 'completed':
+                    print(f"\nTranscript generation completed successfully!")
+                    if 'results' in results:
+                        save_results = results['results']
+                        print(f"Generated: {save_results.get('success_count', 0)} transcripts")
+                        print(f"Errors: {save_results.get('error_count', 0)} transcripts")
+                        print(f"Results saved to: {save_results.get('detailed_results', 'Unknown')}")
+                else:
+                    print(f"\nTranscript generation failed: {results.get('error', 'Unknown error')}")
+            else:
+                self.print_results_summary(results)
             
         except KeyboardInterrupt:
             print("\n\nProcessing interrupted by user")
@@ -807,11 +859,17 @@ class InteractiveDatasetProcessor:
             print(f"  Correct predictions: {summary['correct_predictions']:,}")
             print(f"  Accuracy: {summary['accuracy']:.2%}")
             print(f"  Success rate: {summary['success_rate']:.2%}")
-        else:  # annotation
+        elif self.config['task'] == 'annotation':
             print(f"  Successful annotations: {summary['successful_annotations']:,}")
             print(f"  Usable annotations: {summary['usable_annotations']:,}")
             print(f"  Success rate: {summary['success_rate']:.2%}")
             print(f"  Usability rate: {summary['usability_rate']:.2%}")
+        else:  # transcript_generation
+            print(f"  Successful generations: {summary.get('success_count', 0):,}")
+            print(f"  Errors: {summary.get('error_count', 0):,}")
+            print(f"  Success rate: {summary.get('success_rate', 0):.2%}")
+            if 'category_distribution' in summary:
+                print(f"  Category distribution: {summary['category_distribution']}")
 
     async def run(self):
         """Main interactive workflow"""
@@ -819,7 +877,32 @@ class InteractiveDatasetProcessor:
         
         # Step-by-step configuration
         self.config['task'] = self.choose_task()
-        self.config['dataset'] = self.choose_dataset()
+        
+        # For transcript generation, we don't need to select an existing dataset
+        if self.config['task'] == "transcript_generation":
+            # Get sample size for transcript generation
+            print("\nSTEP 2: Configure Transcript Generation")
+            print("-" * 40)
+            while True:
+                try:
+                    sample_size = int(input("Enter number of transcripts to generate (default: 1000): ").strip() or "1000")
+                    if sample_size > 0:
+                        break
+                    else:
+                        print("Please enter a positive number")
+                except ValueError:
+                    print("Please enter a valid number")
+            
+            self.config['dataset'] = {
+                'path': 'generated_transcripts',
+                'name': 'Generated Transcripts',
+                'directory': 'results',
+                'columns': ['transcript', 'classification', 'category_assigned'],
+                'records': sample_size
+            }
+        else:
+            self.config['dataset'] = self.choose_dataset()
+            
         self.config['provider'] = self.choose_provider()
         self.config['model'] = self.choose_model(self.config['provider'])
         
@@ -827,8 +910,9 @@ class InteractiveDatasetProcessor:
         processing_options = self.configure_processing_options()
         self.config.update(processing_options)
         
-        # Only offer checkpoint options if processing full dataset
-        if self.config.get('sample_size', self.config['dataset']['records']) == self.config['dataset']['records']:
+        # Only offer checkpoint options if processing full dataset (or transcript generation)
+        if (self.config['task'] == 'transcript_generation' or 
+            self.config.get('sample_size', self.config['dataset']['records']) == self.config['dataset']['records']):
             self.config['checkpoint_file'] = self.choose_checkpoint()
         else:
             self.config['checkpoint_file'] = None

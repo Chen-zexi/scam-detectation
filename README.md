@@ -120,17 +120,20 @@ message,phone,timestamp,label
 
 ### Step 7: Running Evaluations in small sample size
 
-To run evaluations in a samll sample size, use the provided evaluation scripts:
+To run evaluations in a small sample size, use the provided evaluation scripts:
 
 ```python
 # For email phishing evaluation
-uv run python email_eval.py
+uv run python eval_email.py
 
 # For SMS phishing evaluation  
-uv run python sms_eval.py
+uv run python eval_sms.py
 
 # For error dataset evaluation
-uv run python error_eval.py
+uv run python eval_error.py
+
+# For generated transcript evaluation
+uv run python transcript_eval.py
 ``` 
 
 
@@ -168,10 +171,70 @@ sample_size = 100
 content_columns = ['content']
 ```
 
+**For Evaluation over Generated Transcripts (`transcript_eval.py`):**
+```python
+# Modify these parameters in the transcript_eval() function
+dataset_path = "results/generated_transcripts/{timestamp}/detailed_results.csv"
+provider = "openai"  # or "lm-studio", "anthropic", "gemini"
+model = "gpt-4.1"
+sample_size = 100
+content_columns = ['transcript']
+```
+
+
+## Transcript Generation Pipeline
+
+The transcript generation pipeline creates realistic phone conversation transcripts for scam detection training. It uses alternating models to generate diverse, realistic conversations across different categories.
+
+### Model Alternation Strategy
+
+The pipeline uses two models with different specializations:
+
+**Model A (Authority Scams, Tech Support, Legitimate Customer Service):**
+- Authority impersonation scams (30%)
+- Tech support scams (25%)
+- Legitimate customer service calls (35%)
+- Subtle scams (10%)
+
+**Model B (Urgency Scams, Financial Fraud, Legitimate Personal/Business, Borderline):**
+- Urgency-based scams (25%)
+- Financial fraud calls (20%)
+- Legitimate personal/business calls (30%)
+- Borderline suspicious calls (15%)
+- Subtle scams (10%)
+
+### Usage
+
+**Command Line Interface:**
+```bash
+# Generate transcript dataset with checkpoints
+uv run python main.py
+# Choose option 3 for transcript generation
+
+# Or use the direct script
+uv run python src/transcript_generator.py --sample-size 1000 --checkpoint-interval 100
+```
+
+**Test the functionality:**
+```bash
+# Run a small test to verify everything works
+uv run python test_transcript_generation.py
+```
+
+### Output Format
+
+Generated transcripts are saved in CSV format with the following columns:
+- `transcript`: Complete phone conversation with speaker identification
+- `classification`: LEGITIMATE, OBVIOUS_SCAM, BORDERLINE_SUSPICIOUS, or SUBTLE_SCAM
+- `generation_model`: Which model generated the transcript
+- `category_assigned`: Specific category of the conversation
+- `conversation_length`: Approximate length in words
+- `participant_demographics`: Brief description of participants
+- `timestamp`: Generation timestamp
 
 ## Full Dataset Processing with Checkpointing
 
-The existing pipeline classes (`LLMAnnotationPipeline` and `ScamDetectionEvaluator`) now include built-in checkpointing capabilities, allowing you to process entire datasets without sampling limitations and resume from where you left off if interrupted.
+The existing pipeline classes (`LLMAnnotationPipeline`, `ScamDetectionEvaluator`, and `TranscriptGenerator`) now include built-in checkpointing capabilities, allowing you to process entire datasets without sampling limitations and resume from where you left off if interrupted.
 
 #### Key Features:
 - **Process entire datasets** without sampling limitations  
@@ -209,6 +272,7 @@ Checkpoints are automatically saved as JSON files containing:
 checkpoints/
 ├── unified_phishing_email_dataset_evaluation_lm-studio_unsloth-qwen3-30b-a3b_20240627_143022.json
 ├── unified_phishing_email_dataset_annotation_lm-studio_unsloth-qwen3-30b-a3b_20240627_150815.json
+├── transcript_generation_openai_gpt-4_20240627_160000.json
 └── ...
 ```
 
@@ -231,6 +295,11 @@ results/
 │       ├── evaluation_metrics.csv    # Summary metrics
 │       ├── evaluation_info.json      # Complete evaluation metadata
 │       └── summary_report.txt        # Human-readable report
+├── generated_transcripts/
+│   └── {timestamp}/
+│       ├── detailed_results.csv      # Generated transcripts with metadata
+│       ├── generation_summary.json   # Generation statistics
+│       └── summary_report.txt        # Human-readable generation report
 ```
 
 ### Output Files Explained
