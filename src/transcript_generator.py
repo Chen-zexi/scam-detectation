@@ -90,10 +90,6 @@ class TranscriptGenerator:
     def setup_models(self):
         """Initialize the LLM models"""
         try:
-            # Debug: Print what we received
-            print(f"DEBUG: selected_model = {self.selected_model}")
-            print(f"DEBUG: selected_provider = {self.selected_provider}")
-            
             # Use the selected model from the main pipeline if provided
             if self.selected_model and self.selected_provider:
                 # Both models will use the same selected model but with different configurations
@@ -182,22 +178,88 @@ Please provide your response in the following format:
         """Calculate how many transcripts to generate for each category"""
         distribution = {}
         
-        # Model A categories
-        for category, config in self.model_a_config["categories"].items():
-            count = int(self.sample_size * config["percentage"] / 100)
-            distribution[category] = count
+        # Split sample size between Model A and Model B (roughly 50/50)
+        model_a_size = self.sample_size // 2
+        model_b_size = self.sample_size - model_a_size
         
-        # Model B categories
-        for category, config in self.model_b_config["categories"].items():
-            count = int(self.sample_size * config["percentage"] / 100)
-            distribution[category] = count
-        
-        # Adjust for rounding errors
-        total_allocated = sum(distribution.values())
-        if total_allocated != self.sample_size:
-            # Add remaining to largest category
-            largest_category = max(distribution, key=distribution.get)
-            distribution[largest_category] += (self.sample_size - total_allocated)
+        # Handle very small sample sizes specially
+        if self.sample_size <= 2:
+            # For 1-2 transcripts, alternate between models
+            if self.sample_size == 1:
+                # Choose the category with highest percentage from Model A
+                best_category = max(self.model_a_config["categories"].items(), 
+                                  key=lambda x: x[1]["percentage"])
+                distribution[best_category[0]] = 1
+                # Initialize all other categories to 0
+                for category in self.model_a_config["categories"]:
+                    if category not in distribution:
+                        distribution[category] = 0
+                for category in self.model_b_config["categories"]:
+                    distribution[category] = 0
+            else:  # sample_size == 2
+                # One from Model A, one from Model B
+                best_a = max(self.model_a_config["categories"].items(), 
+                           key=lambda x: x[1]["percentage"])
+                best_b = max(self.model_b_config["categories"].items(), 
+                           key=lambda x: x[1]["percentage"])
+                distribution[best_a[0]] = 1
+                distribution[best_b[0]] = 1
+                # Initialize all other categories to 0
+                for category in self.model_a_config["categories"]:
+                    if category not in distribution:
+                        distribution[category] = 0
+                for category in self.model_b_config["categories"]:
+                    if category not in distribution:
+                        distribution[category] = 0
+        else:
+            # For larger samples, distribute proportionally within each model
+            
+            # Model A distribution
+            for category, config in self.model_a_config["categories"].items():
+                count = int(model_a_size * config["percentage"] / 100)
+                distribution[category] = count
+            
+            # Model B distribution  
+            for category, config in self.model_b_config["categories"].items():
+                count = int(model_b_size * config["percentage"] / 100)
+                if category in distribution:
+                    # Handle duplicate categories (like subtle_scam)
+                    distribution[category] += count
+                else:
+                    distribution[category] = count
+            
+            # Adjust for rounding errors
+            total_allocated = sum(distribution.values())
+            if total_allocated != self.sample_size:
+                # Find the category with the largest fractional remainder
+                remainder_candidates = []
+                
+                # Calculate fractional parts for Model A
+                for category, config in self.model_a_config["categories"].items():
+                    exact_count = model_a_size * config["percentage"] / 100
+                    fractional_part = exact_count - int(exact_count)
+                    remainder_candidates.append((category, fractional_part))
+                
+                # Calculate fractional parts for Model B
+                for category, config in self.model_b_config["categories"].items():
+                    exact_count = model_b_size * config["percentage"] / 100
+                    fractional_part = exact_count - int(exact_count)
+                    remainder_candidates.append((category, fractional_part))
+                
+                # Sort by fractional part and allocate remaining
+                remainder_candidates.sort(key=lambda x: x[1], reverse=True)
+                remaining = self.sample_size - total_allocated
+                
+                for i in range(abs(remaining)):
+                    if remaining > 0:
+                        # Add to categories with highest fractional parts
+                        category = remainder_candidates[i % len(remainder_candidates)][0]
+                        distribution[category] += 1
+                    else:
+                        # Remove from categories with lowest fractional parts
+                        category = remainder_candidates[-(i+1) % len(remainder_candidates)][0]
+                        if distribution[category] > 0:
+                            distribution[category] -= 1
         
         return distribution
 
@@ -331,6 +393,7 @@ Please provide your response in the following format:
                 return result
         
         # Process tasks with progress bar
+        concurrent_requests = max(1, concurrent_requests)  # Ensure concurrent_requests is at least 1
         with tqdm(total=len(tasks), desc="Generating transcripts") as pbar:
             for i in range(0, len(tasks), concurrent_requests):
                 batch = tasks[i:i + concurrent_requests]
@@ -483,7 +546,7 @@ Please provide your response in the following format:
     def save_checkpoint(self, checkpoint_dir: str = "checkpoints"):
         """Save current progress to checkpoint"""
         checkpoint_path = Path(checkpoint_dir)
-        checkpoint_path.mkdir(exist_ok=True)
+        checkpoint_path.mkdir(parents=True, exist_ok=True)
         
         checkpoint_data = {
             'timestamp': datetime.now().isoformat(),
@@ -563,7 +626,7 @@ Please provide your response in the following format:
                 return result
         
         # Process in batches with checkpointing
-        batch_size = checkpoint_interval
+        batch_size = max(1, checkpoint_interval)  # Ensure batch_size is at least 1
         all_results = []
         
         with tqdm(total=len(tasks), desc="Generating transcripts") as pbar:
