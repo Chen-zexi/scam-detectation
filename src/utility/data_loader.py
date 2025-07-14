@@ -60,8 +60,9 @@ class DatasetLoader:
             print(f"Label column processed successfully")
             print(f"Valid label values: {sorted(self.df['label'].unique())}")
             
-            # Identify features (all columns except 'label')
-            self.features = [col for col in self.df.columns if col != 'label']
+            # Identify features (exclude label and common non-content columns)
+            excluded_columns = {'label', 'id', 'source', 'index', 'idx', 'row_id', 'record_id'}
+            self.features = [col for col in self.df.columns if col.lower() not in excluded_columns]
             
             print(f"Identified content features: {self.features}")
             

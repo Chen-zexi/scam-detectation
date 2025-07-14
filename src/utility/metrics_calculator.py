@@ -113,9 +113,16 @@ class MetricsCalculator:
             print(f"Dataset: {dataset_info.get('name', 'Unknown')}")
             print(f"Total records in dataset: {dataset_info.get('total_records', 'Unknown')}")
             print(f"Content features used: {', '.join(dataset_info.get('features', []))}")
+            
+            # Show original dataset distribution
             scam_count = dataset_info.get('scam_count', 0)
             legitimate_count = dataset_info.get('legitimate_count', 0)
-            print(f"Dataset distribution: {scam_count} scam, {legitimate_count} legitimate")
+            print(f"Original dataset distribution: {scam_count} scam, {legitimate_count} legitimate")
+            
+            # Show sample distribution (calculated from actual results)
+            sample_scam = len([r for r in self.valid_results if r.get('actual_label') == 1])
+            sample_legit = len([r for r in self.valid_results if r.get('actual_label') == 0])
+            print(f"Sample distribution: {sample_scam} scam, {sample_legit} legitimate")
             print()
         
         if 'error' in metrics:

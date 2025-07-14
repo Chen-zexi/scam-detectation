@@ -2,11 +2,11 @@ import time
 import pandas as pd
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
-from api_provider import LLM
-from api_call import make_api_call, make_api_call_async
-from data_loader import DatasetLoader
-from prompt_generator import PromptGenerator
-from results_saver import ResultsSaver
+from src.llm_core.api_provider import LLM
+from src.llm_core.api_call import make_api_call, make_api_call_async
+from src.utility.data_loader import DatasetLoader
+from src.evaluate.prompt_generator import PromptGenerator
+from src.utility.results_saver import ResultsSaver
 import json
 import asyncio
 

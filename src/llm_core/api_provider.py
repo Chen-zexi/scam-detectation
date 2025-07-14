@@ -15,7 +15,6 @@ class LLM:
     def get_llm(self):
         if self.provider == "openai":
             api_key = os.getenv("OPENAI_API_KEY")
-            print(api_key)
             if not api_key:
                 raise ValueError("OPENAI_API_KEY is not set")
             return ChatOpenAI(api_key=api_key, model=self.model, temperature=0)
@@ -26,7 +25,6 @@ class LLM:
             return ChatAnthropic(api_key=api_key, model=self.model, temperature=0)
         elif self.provider == "gemini":
             api_key = os.getenv("GEMINI_API_KEY")
-            print(api_key)
             if not api_key:
                 raise ValueError("GEMINI_API_KEY is not set")
             if self.model.startswith("gemini-2.5-flash"):

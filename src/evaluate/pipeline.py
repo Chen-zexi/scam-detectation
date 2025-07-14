@@ -15,11 +15,7 @@ import sys
 import os
 from pathlib import Path
 
-# Add current directory to Python path to allow imports
-current_dir = Path(__file__).parent
-sys.path.insert(0, str(current_dir))
-
-from evaluator import ScamDetectionEvaluator
+from src.evaluate.evaluator import ScamDetectionEvaluator
 
 def parse_arguments():
     """Parse command line arguments"""

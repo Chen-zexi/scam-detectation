@@ -23,14 +23,10 @@ import pandas as pd
 from datetime import datetime
 from tqdm import tqdm
 
-# Add current directory to Python path to allow imports
-current_dir = Path(__file__).parent
-sys.path.insert(0, str(current_dir))
-
-from api_provider import LLM
-from api_call import make_api_call, parse_structured_output, make_api_call_async, parse_structured_output_async
-from results_saver import ResultsSaver
-from transcript_prompts import get_model_config, get_prompt_for_category, MODEL_A_CONFIG, MODEL_B_CONFIG
+from src.llm_core.api_provider import LLM
+from src.llm_core.api_call import make_api_call, parse_structured_output, make_api_call_async, parse_structured_output_async
+from src.utility.results_saver import ResultsSaver
+from src.synthesize.transcript_prompts import get_model_config, get_prompt_for_category, MODEL_A_CONFIG, MODEL_B_CONFIG
 from pydantic import BaseModel
 
 class TranscriptResponseSchema(BaseModel):
@@ -543,7 +539,7 @@ Please provide your response in the following format:
             print(f"Error loading checkpoint: {e}")
             return False
 
-    def save_checkpoint(self, checkpoint_dir: str = "checkpoints"):
+    def save_checkpoint(self, checkpoint_dir: str = "checkpoints", progress_bar=None):
         """Save current progress to checkpoint"""
         checkpoint_path = Path(checkpoint_dir)
         checkpoint_path.mkdir(parents=True, exist_ok=True)
@@ -564,12 +560,18 @@ Please provide your response in the following format:
         with open(self.checkpoint_file, 'w') as f:
             json.dump(checkpoint_data, f, indent=2)
         
-        self._write_checkpoint_message(f"Checkpoint saved: {self.current_index}/{self.sample_size}")
+        self._write_checkpoint_message(f"Checkpoint saved: {self.current_index}/{self.sample_size}", progress_bar)
 
-    def _write_checkpoint_message(self, message: str):
-        """Write checkpoint message with timestamp"""
+    def _write_checkpoint_message(self, message: str, progress_bar=None):
+        """Write checkpoint message using tqdm-friendly approach"""
         timestamp = datetime.now().strftime("%H:%M:%S")
-        print(f"[{timestamp}] {message}")
+        # Use tqdm.write() which automatically positions the message correctly
+        tqdm.write(f"📁 [{timestamp}] {message}")
+        
+        # If we have a progress bar reference, update its postfix
+        if progress_bar:
+            progress_bar.set_postfix_str("✓ Checkpoint saved")
+            progress_bar.refresh()
 
     async def process_full_generation_with_checkpoints(self, 
                                                      checkpoint_interval: int = 100,

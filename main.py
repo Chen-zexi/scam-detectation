@@ -39,8 +39,8 @@ import pandas as pd
 # Add src to path
 sys.path.append('src')
 
-from src.annotation_pipeline import LLMAnnotationPipeline
-from src.evaluator import ScamDetectionEvaluator
+from src.annotate import LLMAnnotationPipeline
+from src.evaluate import ScamDetectionEvaluator
 
 
 class InteractiveDatasetProcessor:
@@ -618,7 +618,7 @@ class InteractiveDatasetProcessor:
                     use_structure_model=self.config['use_structure_model']
                 )
             else:  # transcript_generation
-                from src.transcript_generator import TranscriptGenerator
+                from src.synthesize import TranscriptGenerator
                 processor = TranscriptGenerator(
                     sample_size=total_records,
                     output_dir="results/generation",
@@ -785,10 +785,12 @@ class InteractiveDatasetProcessor:
             print(f"  Accuracy: {summary['accuracy']:.2%}")
             print(f"  Success rate: {summary['success_rate']:.2%}")
         elif self.config['task'] == 'annotation':
-            print(f"  Successful annotations: {summary['successful_annotations']:,}")
-            print(f"  Usable annotations: {summary['usable_annotations']:,}")
-            print(f"  Success rate: {summary['success_rate']:.2%}")
-            print(f"  Usability rate: {summary['usability_rate']:.2%}")
+            print(f"  Successful annotations: {summary.get('successful_annotations', 0):,}")
+            if 'usable_annotations' in summary:
+                print(f"  Usable annotations: {summary['usable_annotations']:,}")
+            print(f"  Success rate: {summary.get('success_rate', 0):.2%}")
+            if 'usability_rate' in summary:
+                print(f"  Usability rate: {summary['usability_rate']:.2%}")
         else:  # transcript_generation
             print(f"  Successful generations: {summary.get('success_count', 0):,}")
             print(f"  Errors: {summary.get('error_count', 0):,}")

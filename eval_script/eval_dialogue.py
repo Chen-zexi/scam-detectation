@@ -12,7 +12,7 @@ from pathlib import Path
 # Add src to path
 sys.path.append('src')
 
-from src import ScamDetectionEvaluator
+from src.evaluate import ScamDetectionEvaluator
 
 def dialogue_eval():
     print("="*80)
