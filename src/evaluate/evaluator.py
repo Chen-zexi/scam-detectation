@@ -362,7 +362,7 @@ class ScamDetectionEvaluator:
         return metrics
     
     def save_results(self) -> Dict[str, str]:
-        """Save results to the specified directory structure"""
+        """Saves evaluation results to a structured directory."""
         if not self.results:
             raise ValueError("No results available. Run evaluation first.")
         

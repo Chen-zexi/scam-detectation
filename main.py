@@ -1,27 +1,26 @@
 #!/usr/bin/env python3
 """
-Interactive Full Dataset Processor with Checkpointing
+Provides an interactive command-line interface for processing datasets.
 
-This script provides an interactive command-line interface for processing
-entire datasets with configurable checkpointing and resume capabilities.
+This script offers a guided workflow for dataset processing with features like
+configurable checkpointing and resume capabilities.
 
-Features:
-- Interactive prompts for all configuration options
-- Automatic dataset detection in data/ directory
-- Automatic model detection for lm-studio and vllm endpoints
-- Checkpoint listing and selection
-- Resume from specific checkpoints
+Key Features:
+- Interactive prompts for all configuration options.
+- Automatic discovery of datasets in the `data/` directory.
+- Automatic detection of models from lm-studio and vLLM endpoints.
+- Checkpoint listing, selection, and resumption.
 
 Usage:
     python main.py
 
-The script will guide you through:
-1. Choosing between annotation or evaluation
-2. Selecting a dataset from available options
-3. Choosing a provider (OpenAI, LM-Studio, vLLM)
-4. Selecting a model
-5. Configuring processing options
-6. Resume from checkpoints if available
+The script provides a guided workflow for:
+1.  Choosing between annotation, evaluation, or transcript generation.
+2.  Selecting a dataset from available options.
+3.  Choosing a provider (e.g., OpenAI, LM-Studio, vLLM).
+4.  Selecting a model.
+5.  Configuring processing options.
+6.  Resuming from checkpoints if available.
 """
 
 import sys
@@ -45,7 +44,7 @@ from src.synthesize import TranscriptGenerator
 
 
 class InteractiveDatasetProcessor:
-    """Interactive command-line interface for dataset processing"""
+    """Manages the interactive command-line interface for dataset processing."""
     
     def __init__(self):
         self.config = {}
@@ -53,7 +52,7 @@ class InteractiveDatasetProcessor:
         self.available_checkpoints = []
         
     def print_header(self):
-        """Print the application header"""
+        """Prints the application header."""
         print("="*80)
         print("INTERACTIVE DATASET PROCESSOR WITH CHECKPOINTING")
         print("="*80)
@@ -62,7 +61,7 @@ class InteractiveDatasetProcessor:
         print()
 
     def discover_datasets(self) -> List[Dict[str, str]]:
-        """Discover available datasets in data/ directory"""
+        """Discovers available datasets in the `data/cleaned` directory."""
         print("Scanning for available datasets...")
         
         datasets = []
@@ -94,7 +93,7 @@ class InteractiveDatasetProcessor:
         return datasets
 
     def choose_task(self) -> str:
-        """Let user choose between annotation, evaluation, and transcript generation"""
+        """Prompts the user to choose a task (annotation, evaluation, etc.)."""
         print("\nSTEP 1: Choose Task Type")
         print("-" * 40)
         print("1. Annotation - Generate structured annotations for datasets")
@@ -113,7 +112,7 @@ class InteractiveDatasetProcessor:
                 print("Please enter 1, 2, or 3")
 
     def choose_dataset(self) -> Dict[str, str]:
-        """Let user choose from available datasets"""
+        """Prompts the user to select from available datasets."""
         print("\n STEP 2: Select Dataset")
         print("-" * 40)
         
@@ -147,7 +146,7 @@ class InteractiveDatasetProcessor:
                 print("Please enter a valid number")
 
     def choose_provider(self) -> str:
-        """Let user choose from available providers"""
+        """Prompts the user to select an LLM provider."""
         print("\nSTEP 3: Select LLM Provider")
         print("-" * 40)
         print("1. OpenAI (GPT models)")
@@ -166,7 +165,7 @@ class InteractiveDatasetProcessor:
                 print("Please enter 1, 2, or 3")
 
     def get_openai_models(self) -> List[str]:
-        """Get predefined OpenAI model options"""
+        """Returns a predefined list of OpenAI model options."""
         return [
             "o3",
             "gpt-4.1-mini", 
@@ -174,7 +173,7 @@ class InteractiveDatasetProcessor:
         ]
 
     def get_lm_studio_models(self) -> List[str]:
-        """Get available models from LM Studio endpoint"""
+        """Fetches available models from an LM Studio endpoint."""
         host_ip = input("Enter LM Studio host IP (default: localhost): ").strip() or "localhost"
         endpoint = f"http://{host_ip}:1234/v1/models"
         
@@ -199,7 +198,7 @@ class InteractiveDatasetProcessor:
             return []
 
     def get_vllm_models(self) -> List[str]:
-        """Get available models from vLLM endpoint"""
+        """Fetches available models from vLLM endpoint."""
         host_ip = input("Enter vLLM host IP (default: host_ip configrued in .env): ").strip() or os.getenv("HOST_IP") or "localhost"
         endpoint = f"http://{host_ip}:8000/v1/models"
         
@@ -224,7 +223,7 @@ class InteractiveDatasetProcessor:
             return []
 
     def choose_model(self, provider: str) -> str:
-        """Let user choose from available models based on provider"""
+        """Prompts the user to select a model from the chosen provider."""
         print(f"\nSTEP 4: Select Model ({provider.upper()})")
         print("-" * 40)
         
@@ -259,7 +258,7 @@ class InteractiveDatasetProcessor:
                 print("Please enter a valid number")
 
     def _infer_task_from_filename(self, filename: str) -> str:
-        """Infer task type from checkpoint filename for backward compatibility"""
+        """Infers task type from a checkpoint filename for backward compatibility."""
         if 'transcript_generation' in filename:
             return 'transcript_generation'
         elif 'annotation' in filename:
@@ -270,7 +269,7 @@ class InteractiveDatasetProcessor:
             return 'unknown'
 
     def discover_checkpoints(self) -> List[Dict[str, str]]:
-        """Discover available checkpoint files for the current task"""
+        """Discovers available checkpoint files for the current task."""
         task = self.config.get('task', 'unknown')
         checkpoint_dir = Path("checkpoints") / task
         
@@ -325,7 +324,7 @@ class InteractiveDatasetProcessor:
         return checkpoints
 
     def choose_checkpoint(self) -> Optional[str]:
-        """Let user choose to resume from a checkpoint"""
+        """Prompts the user to select a checkpoint or start fresh."""
         print("\nSTEP 5: Checkpoint Options")
         print("-" * 40)
         
@@ -363,7 +362,7 @@ class InteractiveDatasetProcessor:
                 print("Please enter a valid number")
 
     def configure_processing_options(self) -> Dict:
-        """Configure processing options"""
+        """Configures advanced processing options based on user input."""
         print("\nSTEP 6: Processing Configuration")
         print("-" * 40)
         
@@ -464,7 +463,7 @@ class InteractiveDatasetProcessor:
         return options
     
     def validate_checkpoint_compatibility(self):
-        """Validate checkpoint compatibility and offer override options"""
+        """Validates checkpoint compatibility and offers override options."""
         if not self.config.get('checkpoint_file'):
             return  # No checkpoint selected, nothing to validate
             
@@ -520,7 +519,7 @@ class InteractiveDatasetProcessor:
                 sys.exit(1)
 
     def print_configuration_summary(self):
-        """Print final configuration summary"""
+        """Prints a final summary of the chosen configuration."""
         print("\nCONFIGURATION SUMMARY")
         print("="*50)
         print(f"Task: {self.config['task']}")
@@ -557,7 +556,7 @@ class InteractiveDatasetProcessor:
         print()
 
     async def run_processing(self):
-        """Run the actual processing based on configuration"""
+        """Runs the processing task based on the current configuration."""
         print("STARTING PROCESSING...")
         print("-" * 40)
         
@@ -730,7 +729,7 @@ class InteractiveDatasetProcessor:
             print("Check checkpoint files to see progress saved so far.")
 
     def print_results_summary(self, results: Dict):
-        """Print summary of processing results"""
+        """Prints a summary of the processing results."""
         # Handle different result formats (checkpoint vs non-checkpoint)
         if 'summary' in results:
             # Checkpoint format
@@ -802,7 +801,7 @@ class InteractiveDatasetProcessor:
                 print(f"  Category distribution: {summary['category_distribution']}")
 
     async def run(self):
-        """Main interactive workflow"""
+        """Runs the main interactive workflow."""
         self.print_header()
         
         # Step-by-step configuration
@@ -862,7 +861,7 @@ class InteractiveDatasetProcessor:
 
 
 def main():
-    """Main entry point"""
+    """Main entry point for the interactive dataset processor."""
     try:
         processor = InteractiveDatasetProcessor()
         asyncio.run(processor.run())

@@ -8,11 +8,28 @@ load_dotenv()
 
 
 class LLM:
+    """A factory class for creating LangChain LLM clients for various providers."""
     def __init__(self, provider: str, model: str):
+        """
+        Initializes the LLM factory.
+
+        Args:
+            provider: The name of the LLM provider (e.g., 'openai', 'lm-studio').
+            model: The specific model name to use.
+        """
         self.provider = provider
         self.model = model
 
     def get_llm(self):
+        """
+        Initializes and returns a LangChain LLM client for the configured provider.
+
+        Returns:
+            A LangChain chat model instance.
+
+        Raises:
+            ValueError: If the provider is unsupported or API keys are missing.
+        """
         if self.provider == "openai":
             api_key = os.getenv("OPENAI_API_KEY")
             if not api_key:

@@ -6,10 +6,7 @@ from pathlib import Path
 from typing import List, Dict, Any
 
 class ResultsSaver:
-    """
-    Save evaluation results in the required directory structure:
-    results/{dataset_name}/{timestamp}/
-    """
+    """Saves evaluation results to a structured, timestamped directory."""
     
     def __init__(self, dataset_name: str, provider: str = None, model: str = None):
         self.dataset_name = dataset_name

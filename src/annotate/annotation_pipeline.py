@@ -408,7 +408,7 @@ class LLMAnnotationPipeline:
         return annotation
     
     def save_annotations(self) -> Dict[str, str]:
-        """Save annotation results in result/annotated/{dataset_name}/{timestamp}/ structure"""
+        """Saves annotation results to a structured directory."""
         if not self.annotations:
             raise ValueError("No annotations available. Run annotation first.")
         
