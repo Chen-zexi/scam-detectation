@@ -3,15 +3,15 @@ from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
 from src.llm_core.api_provider import LLM
 from src.llm_core.api_call import make_api_call, parse_structured_output, make_api_call_async, parse_structured_output_async, remove_thinking_tokens
-from src.utility.data_loader import DatasetLoader
+from src.utils.data_loader import DatasetLoader
 from src.evaluate.prompt_generator import PromptGenerator
 
 # Evaluation-specific response schema
 class EvaluationResponseSchema(BaseModel):
     Phishing: bool
     Reason: str
-from src.utility.metrics_calculator import MetricsCalculator
-from src.utility.results_saver import ResultsSaver
+from src.utils.metrics_calculator import MetricsCalculator
+from src.utils.results_saver import ResultsSaver
 import asyncio
 import time
 import json

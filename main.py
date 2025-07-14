@@ -41,6 +41,7 @@ sys.path.append('src')
 
 from src.annotate import LLMAnnotationPipeline
 from src.evaluate import ScamDetectionEvaluator
+from src.synthesize import TranscriptGenerator
 
 
 class InteractiveDatasetProcessor:
@@ -621,7 +622,6 @@ class InteractiveDatasetProcessor:
                     use_structure_model=self.config['use_structure_model']
                 )
             else:  # transcript_generation
-                from src.synthesize import TranscriptGenerator
                 processor = TranscriptGenerator(
                     sample_size=total_records,
                     output_dir="results/generation",

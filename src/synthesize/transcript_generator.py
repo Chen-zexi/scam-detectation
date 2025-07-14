@@ -25,7 +25,7 @@ from tqdm import tqdm
 
 from src.llm_core.api_provider import LLM
 from src.llm_core.api_call import make_api_call_async
-from src.utility.results_saver import ResultsSaver
+from src.utils.results_saver import ResultsSaver
 from src.synthesize.transcript_prompts import get_model_config, get_prompt_for_category, MODEL_A_CONFIG, MODEL_B_CONFIG
 from pydantic import BaseModel
 
