@@ -26,6 +26,10 @@ evaluation_results/
 performance_results/*
 checkpoints/*
 
+.claude/
+
+performance_results/
+
 # Temporary file
 *.tmp
 *.temp
