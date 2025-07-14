@@ -43,50 +43,6 @@ from src.annotation_pipeline import LLMAnnotationPipeline
 from src.evaluator import ScamDetectionEvaluator
 
 
-class TimeEstimator:
-    """Helper class for tracking and estimating processing time"""
-    
-    def __init__(self, total_records: int, initial_estimate: float = 2.0):
-        self.total_records = total_records
-        self.initial_estimate = initial_estimate
-        self.start_time = None
-        self.last_update_time = None
-        self.processed_count = 0
-        
-    def start(self):
-        """Start timing"""
-        self.start_time = time.time()
-        self.last_update_time = self.start_time
-        
-    def update(self, processed_count: int):
-        """Update with current progress"""
-        self.processed_count = processed_count
-        self.last_update_time = time.time()
-        
-    def get_current_rate(self) -> float:
-        """Get current processing rate (records per second)"""
-        if not self.start_time or self.processed_count == 0:
-            return 1.0 / self.initial_estimate
-            
-        elapsed = time.time() - self.start_time
-        return self.processed_count / elapsed if elapsed > 0 else 1.0 / self.initial_estimate
-        
-    def get_estimated_remaining_time(self) -> float:
-        """Get estimated remaining time in seconds"""
-        remaining_records = self.total_records - self.processed_count
-        rate = self.get_current_rate()
-        return remaining_records / rate if rate > 0 else 0
-        
-    def format_time(self, seconds: float) -> str:
-        """Format time in a human-readable way"""
-        if seconds < 60:
-            return f"{seconds:.0f} seconds"
-        elif seconds < 3600:
-            return f"{seconds/60:.1f} minutes"
-        else:
-            return f"{seconds/3600:.1f} hours"
-
-
 class InteractiveDatasetProcessor:
     """Interactive command-line interface for dataset processing"""
     
@@ -301,29 +257,67 @@ class InteractiveDatasetProcessor:
             except ValueError:
                 print("Please enter a valid number")
 
+    def _infer_task_from_filename(self, filename: str) -> str:
+        """Infer task type from checkpoint filename for backward compatibility"""
+        if 'transcript_generation' in filename:
+            return 'transcript_generation'
+        elif 'annotation' in filename:
+            return 'annotation'
+        elif 'evaluation' in filename:
+            return 'evaluation'
+        else:
+            return 'unknown'
+
     def discover_checkpoints(self) -> List[Dict[str, str]]:
-        """Discover available checkpoint files"""
-        checkpoint_dir = Path("checkpoints")
-        if not checkpoint_dir.exists():
-            return []
+        """Discover available checkpoint files for the current task"""
+        task = self.config.get('task', 'unknown')
+        checkpoint_dir = Path("checkpoints") / task
+        
+        # Also check the old checkpoint directory for backward compatibility
+        old_checkpoint_dir = Path("checkpoints")
         
         checkpoints = []
-        for checkpoint_file in checkpoint_dir.glob("*.json"):
-            try:
-                with open(checkpoint_file, 'r') as f:
-                    checkpoint_data = json.load(f)
-                
-                checkpoints.append({
-                    'file': str(checkpoint_file),
-                    'name': checkpoint_file.name,
-                    'progress': f"{checkpoint_data.get('current_index', 0):,}/{checkpoint_data.get('total_records', 0):,}",
-                    'provider': checkpoint_data.get('provider', 'Unknown'),
-                    'model': checkpoint_data.get('model', 'Unknown'),
-                    'timestamp': checkpoint_data.get('timestamp', 'Unknown'),
-                    'task': checkpoint_data.get('task', 'Unknown')
-                })
-            except:
-                continue  # Skip invalid checkpoint files
+        
+        # Check new task-specific directory first
+        if checkpoint_dir.exists():
+            for checkpoint_file in checkpoint_dir.glob("*.json"):
+                try:
+                    with open(checkpoint_file, 'r') as f:
+                        checkpoint_data = json.load(f)
+                    
+                    checkpoints.append({
+                        'file': str(checkpoint_file),
+                        'name': checkpoint_file.name,
+                        'progress': f"{checkpoint_data.get('current_index', 0):,}/{checkpoint_data.get('total_records', 0):,}",
+                        'provider': checkpoint_data.get('provider', 'Unknown'),
+                        'model': checkpoint_data.get('model', 'Unknown'),
+                        'timestamp': checkpoint_data.get('timestamp', 'Unknown'),
+                        'task': checkpoint_data.get('task', task)
+                    })
+                except:
+                    continue  # Skip invalid checkpoint files
+        
+        # Check old directory for backward compatibility - only include matching task
+        if old_checkpoint_dir.exists():
+            for checkpoint_file in old_checkpoint_dir.glob("*.json"):
+                try:
+                    with open(checkpoint_file, 'r') as f:
+                        checkpoint_data = json.load(f)
+                    
+                    # Only include checkpoints for the current task
+                    file_task = self._infer_task_from_filename(checkpoint_file.name)
+                    if file_task == task:
+                        checkpoints.append({
+                            'file': str(checkpoint_file),
+                            'name': checkpoint_file.name,
+                            'progress': f"{checkpoint_data.get('current_index', 0):,}/{checkpoint_data.get('total_records', 0):,}",
+                            'provider': checkpoint_data.get('provider', 'Unknown'),
+                            'model': checkpoint_data.get('model', 'Unknown'),
+                            'timestamp': checkpoint_data.get('timestamp', 'Unknown'),
+                            'task': checkpoint_data.get('task', file_task)
+                        })
+                except:
+                    continue  # Skip invalid checkpoint files
         
         # Sort by modification time (newest first)
         checkpoints.sort(key=lambda x: Path(x['file']).stat().st_mtime, reverse=True)
@@ -410,21 +404,30 @@ class InteractiveDatasetProcessor:
             print(f"\nTranscript Generation: Will generate {options['sample_size']:,} transcripts")
         
         # Checkpoint interval
-        default_interval = min(1000, options['sample_size'] // 10) if options['sample_size'] < 10000 else 1000
+        default_interval = min(1000, max(1, options['sample_size'] // 10)) if options['sample_size'] < 10000 else 1000
         interval_input = input(f"Checkpoint interval (default: {default_interval}): ").strip()
-        options['checkpoint_interval'] = int(interval_input) if interval_input else default_interval
+        checkpoint_interval = int(interval_input) if interval_input else default_interval
+        options['checkpoint_interval'] = max(1, checkpoint_interval)  # Ensure it's at least 1
         
         # Async processing
-        async_choice = input("Use async processing for faster execution? (Y/n): ").strip().lower()
-        options['use_async'] = async_choice not in ['n', 'no']
-        
-        # Always set concurrent_requests (default to 1 for sequential processing)
-        default_concurrent = 20 if options['use_async'] else 1
-        if options['use_async']:
+        if self.config['task'] == 'transcript_generation':
+            # Transcript generation is always async
+            options['use_async'] = True
+            print("\nTranscript generation uses async processing by default.")
+            default_concurrent = 5  # More conservative default for generation
             concurrent_input = input(f"Number of concurrent requests (default: {default_concurrent}): ").strip()
             options['concurrent_requests'] = int(concurrent_input) if concurrent_input else default_concurrent
         else:
-            options['concurrent_requests'] = 1  # Sequential processing
+            async_choice = input("Use async processing for faster execution? (Y/n): ").strip().lower()
+            options['use_async'] = async_choice not in ['n', 'no']
+            
+            # Always set concurrent_requests (default to 1 for sequential processing)
+            default_concurrent = 20 if options['use_async'] else 1
+            if options['use_async']:
+                concurrent_input = input(f"Number of concurrent requests (default: {default_concurrent}): ").strip()
+                options['concurrent_requests'] = int(concurrent_input) if concurrent_input else default_concurrent
+            else:
+                options['concurrent_requests'] = 1  # Sequential processing
         
         # Content columns (only for annotation and evaluation)
         if self.config['task'] in ['annotation', 'evaluation']:
@@ -437,15 +440,22 @@ class InteractiveDatasetProcessor:
             # Transcript generation doesn't use content columns
             options['content_columns'] = None
         
-        # Advanced options
-        print("\nAdvanced options:")
-        print("Warning: You should set these to N for most cases.")
-        
-        thinking_choice = input("Enable thinking tokens? (y/N): ").strip().lower()
-        options['enable_thinking'] = thinking_choice in ['y', 'yes']
-        
-        structure_choice = input("Use structure model for parsing? (y/N): ").strip().lower()
-        options['use_structure_model'] = structure_choice in ['y', 'yes']
+        # Advanced options (vary by task)
+        if self.config['task'] == 'transcript_generation':
+            # Use default settings for transcript generation (bypass advanced options)
+            options['enable_thinking'] = False
+            options['use_structure_model'] = False
+            print("\nUsing default settings for transcript generation (thinking tokens: disabled, structure model: disabled)")
+            
+        else:
+            print("\nAdvanced options:")
+            print("Warning: You should set these to N for most cases.")
+            
+            thinking_choice = input("Enable thinking tokens? (y/N): ").strip().lower()
+            options['enable_thinking'] = thinking_choice in ['y', 'yes']
+            
+            structure_choice = input("Use structure model for parsing? (y/N): ").strip().lower()
+            options['use_structure_model'] = structure_choice in ['y', 'yes']
         
         return options
     
@@ -542,99 +552,13 @@ class InteractiveDatasetProcessor:
             print(f"Content columns: {', '.join(self.config['content_columns'])}")
         print()
 
-    def _calculate_time_estimate(self, total_records: int) -> float:
-        """Calculate initial time estimate per record using provider-specific baselines"""
-        
-        # Provider-specific base estimates (seconds per record)
-        # These are conservative estimates that will be improved by real-time data during processing
-        provider_estimates = {
-            'openai': 1.5,      # OpenAI models are typically fast
-            'lm-studio': 2.5,   # Local models vary more 
-            'vllm': 1.0         # vLLM is optimized for throughput
-        }
-        
-        # Get base estimate
-        base_estimate = provider_estimates.get(self.config['provider'], 2.0)
-        
-        # Adjust for task complexity
-        if self.config['task'] == 'annotation':
-            base_estimate *= 1.2  # Annotations are slightly more complex
-        
-        print(f"Using conservative provider-based estimate: {base_estimate:.2f}s per record")
-        print(f"   (Provider: {self.config['provider']}, Task: {self.config['task']})")
-        print(f"   Note: This estimate will improve significantly once processing begins")
-        return base_estimate
-    
-
-    
-    def _display_time_estimate(self, total_est_time: float, remaining_records: int, time_per_record: float):
-        """Display initial time estimate with context about real-time improvements"""
-        
-        print(f"\nINITIAL TIME ESTIMATION")
-        print(f"   Records remaining: {remaining_records:,}")
-        print(f"   Conservative estimate: {time_per_record:.2f}s per record")
-        
-        if self.config['use_async']:
-            concurrent = self.config['concurrent_requests']
-            print(f"   Concurrency: {concurrent} requests (overlapping batches)")
-            
-            # Show effective rate with overlapping efficiency
-            effective_rate = concurrent * 1.3 / time_per_record  # Include efficiency factor
-            print(f"   Theoretical max rate: ~{effective_rate:.1f} records/s (with overlapping efficiency)")
-        
-        # Display estimate in most appropriate unit
-        if total_est_time > 3600:
-            hours = total_est_time / 3600
-            print(f"Conservative estimate: {hours:.1f} hours")
-            if hours > 24:
-                days = hours / 24
-                print(f"      ({days:.1f} days)")
-        elif total_est_time > 60:
-            minutes = total_est_time / 60
-            print(f"Conservative estimate: {minutes:.1f} minutes")
-        else:
-            print(f"Conservative estimate: {total_est_time:.0f} seconds")
-        
-        # Add helpful context about real-time updates
-        print(f"\nNote: This is a conservative initial estimate based on provider averages.")
-        print(f"Actual processing speed and time estimates will be calculated and displayed")
-        print(f"in real-time based on current batch processing performance.")
-        if self.config['provider'] == 'vllm':
-            print(f"vLLM typically achieves much faster rates than this conservative estimate.")
-        print()
-
     async def run_processing(self):
         """Run the actual processing based on configuration"""
         print("STARTING PROCESSING...")
         print("-" * 40)
         
-        # Initial conservative time estimation (will be improved by real-time data during processing)
         total_records = self.config['dataset']['records']
         sample_size = self.config.get('sample_size', total_records)
-        est_time_per_record = self._calculate_time_estimate(sample_size)
-        
-        remaining_records = sample_size
-        if self.config.get('checkpoint_file'):
-            try:
-                with open(self.config['checkpoint_file'], 'r') as f:
-                    checkpoint_data = json.load(f)
-                    current_index = checkpoint_data.get('current_index', 0)
-                    remaining_records = sample_size - current_index
-            except:
-                pass
-        
-        # Calculate estimated time with concurrency factor
-        if self.config['use_async']:
-            # Account for concurrency and overlapping batches efficiency
-            concurrency_factor = self.config['concurrent_requests']
-            # Overlapping batches are ~20-40% more efficient
-            efficiency_factor = 1.3
-            total_est_time = (remaining_records * est_time_per_record) / (concurrency_factor * efficiency_factor)
-        else:
-            total_est_time = remaining_records * est_time_per_record
-        
-        # Display initial conservative estimate
-        self._display_time_estimate(total_est_time, remaining_records, est_time_per_record)
         
         # Handle checkpoint file for specific resume
         resume_from_checkpoint = self.config.get('checkpoint_file') is not None
@@ -678,7 +602,7 @@ class InteractiveDatasetProcessor:
                     sample_size=sample_size,
                     balanced_sample=balanced_sample,
                     content_columns=self.config['content_columns'],
-                    output_dir="results/full_dataset",
+                    output_dir="results/annotation",
                     enable_thinking=self.config['enable_thinking'],
                     use_structure_model=self.config['use_structure_model']
                 )
@@ -697,7 +621,7 @@ class InteractiveDatasetProcessor:
                 from src.transcript_generator import TranscriptGenerator
                 processor = TranscriptGenerator(
                     sample_size=total_records,
-                    output_dir="results",
+                    output_dir="results/generation",
                     enable_thinking=self.config['enable_thinking'],
                     use_structure_model=self.config['use_structure_model'],
                     selected_model=self.config['model'],
@@ -712,7 +636,7 @@ class InteractiveDatasetProcessor:
                 # Transcript generation is always async
                 results = await processor.process_full_generation_with_checkpoints(
                     checkpoint_interval=self.config['checkpoint_interval'],
-                    checkpoint_dir="checkpoints",
+                    checkpoint_dir="checkpoints/generation",
                     resume_from_checkpoint=resume_from_checkpoint,
                     concurrent_requests=self.config['concurrent_requests'],
                     override_compatibility=override_compatibility
@@ -723,11 +647,12 @@ class InteractiveDatasetProcessor:
                 
                 if is_full_dataset and (resume_from_checkpoint or self.config.get('checkpoint_file')):
                     # Full dataset with checkpointing
+                    task_checkpoint_dir = f"checkpoints/{self.config['task']}"
                     if self.config['use_async']:
                         if self.config['task'] == "annotation":
                             results = await processor.process_full_dataset_with_checkpoints_async(
                                 checkpoint_interval=self.config['checkpoint_interval'],
-                                checkpoint_dir="checkpoints",
+                                checkpoint_dir=task_checkpoint_dir,
                                 resume_from_checkpoint=resume_from_checkpoint,
                                 concurrent_requests=self.config['concurrent_requests'],
                                 override_compatibility=override_compatibility
@@ -735,7 +660,7 @@ class InteractiveDatasetProcessor:
                         else:
                             results = await processor.process_full_dataset_with_checkpoints_async(
                                 checkpoint_interval=self.config['checkpoint_interval'],
-                                checkpoint_dir="checkpoints",
+                                checkpoint_dir=task_checkpoint_dir,
                                 resume_from_checkpoint=resume_from_checkpoint,
                                 concurrent_requests=self.config['concurrent_requests']
                             )
@@ -743,14 +668,14 @@ class InteractiveDatasetProcessor:
                         if self.config['task'] == "annotation":
                             results = processor.process_full_dataset_with_checkpoints(
                                 checkpoint_interval=self.config['checkpoint_interval'],
-                                checkpoint_dir="checkpoints",
+                                checkpoint_dir=task_checkpoint_dir,
                                 resume_from_checkpoint=resume_from_checkpoint,
                                 override_compatibility=override_compatibility
                             )
                         else:
                             results = processor.process_full_dataset_with_checkpoints(
                                 checkpoint_interval=self.config['checkpoint_interval'],
-                                checkpoint_dir="checkpoints",
+                                checkpoint_dir=task_checkpoint_dir,
                                 resume_from_checkpoint=resume_from_checkpoint
                             )
                 else:
