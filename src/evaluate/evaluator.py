@@ -1,9 +1,15 @@
 import pandas as pd
 from typing import List, Dict, Any, Optional
+from pydantic import BaseModel
 from src.llm_core.api_provider import LLM
-from src.llm_core.api_call import make_api_call, parse_structured_output, make_api_call_async, parse_structured_output_async
+from src.llm_core.api_call import make_api_call, parse_structured_output, make_api_call_async, parse_structured_output_async, remove_thinking_tokens
 from src.utility.data_loader import DatasetLoader
 from src.evaluate.prompt_generator import PromptGenerator
+
+# Evaluation-specific response schema
+class EvaluationResponseSchema(BaseModel):
+    Phishing: bool
+    Reason: str
 from src.utility.metrics_calculator import MetricsCalculator
 from src.utility.results_saver import ResultsSaver
 import asyncio
@@ -73,7 +79,7 @@ class ScamDetectionEvaluator:
             self.llm_instance = LLM(provider=self.provider, model=self.model)
             self.llm = self.llm_instance.get_llm()
             if self.use_structure_model:
-                self.structure_model = self.llm_instance.get_structure_model(provider='lm-studio')
+                self.structure_model = self.llm_instance.get_structure_model()  # Uses gpt-4.1-nano by default
             print(f"LLM initialized successfully: {self.provider} - {self.model}")
         except Exception as e:
             raise Exception(f"Error initializing LLM: {e}")
@@ -145,20 +151,13 @@ class ScamDetectionEvaluator:
             try:
                 if self.use_structure_model:
                     # Make API call
-                    response = make_api_call(self.llm, system_prompt, user_prompt, enable_thinking=self.enable_thinking, structure_model=True)
-                    
-                    # Remove thinking tokens if they exist
-                    if self.enable_thinking or ('<think>' in response and '</think>' in response):
-                        import re
-                        # Remove everything between <think> and </think> tags
-                        response = re.sub(r'<think>.*?</think>', '', response, flags=re.DOTALL).strip()
-                        # Response cleaned of thinking tokens
-                    
-                    response = parse_structured_output(self.structure_model, response)
+                    response = make_api_call(self.llm, system_prompt, user_prompt, response_schema=None, enable_thinking=self.enable_thinking, use_structure_model=True, structure_model=self.structure_model)
+                    # Thinking tokens are automatically removed in make_api_call
+                    response = parse_structured_output(self.structure_model, response, EvaluationResponseSchema)
                     # Response parsed successfully
                 else:
                     # Make API call
-                    response = make_api_call(self.llm, system_prompt, user_prompt, structure_model=False)
+                    response = make_api_call(self.llm, system_prompt, user_prompt, response_schema=EvaluationResponseSchema, use_structure_model=False)
                 
                 # Extract prediction
                 predicted_scam = response.Phishing  # Note: API still uses "Phishing" key for compatibility
@@ -229,20 +228,13 @@ class ScamDetectionEvaluator:
                     if self.use_structure_model:
                         # Make async API call
                         response = await make_api_call_async(self.llm, system_prompt, user_prompt, 
-                                                           enable_thinking=self.enable_thinking, structure_model=True)
-                        
-                        # Remove thinking tokens if they exist
-                        if self.enable_thinking or ('<think>' in response and '</think>' in response):
-                            import re
-                            # Remove everything between <think> and </think> tags
-                            response = re.sub(r'<think>.*?</think>', '', response, flags=re.DOTALL).strip()
-                            # Response cleaned of thinking tokens
-                        
-                        response = await parse_structured_output_async(self.structure_model, response)
+                                                           response_schema=None, enable_thinking=self.enable_thinking, use_structure_model=True, structure_model=self.structure_model)
+                        # Thinking tokens are automatically removed in make_api_call_async
+                        response = await parse_structured_output_async(self.structure_model, response, EvaluationResponseSchema)
                         # Response parsed successfully
                     else:
                         # Make async API call
-                        response = await make_api_call_async(self.llm, system_prompt, user_prompt, structure_model=False)
+                        response = await make_api_call_async(self.llm, system_prompt, user_prompt, response_schema=EvaluationResponseSchema, use_structure_model=False)
                     
                     # Extract prediction
                     predicted_scam = response.Phishing  # Note: API still uses "Phishing" key for compatibility
@@ -474,10 +466,6 @@ class ScamDetectionEvaluator:
         print("\n5. Saving results...")
         save_paths = self.save_results()
         
-        print("\n" + "="*80)
-        print("ASYNC EVALUATION COMPLETED SUCCESSFULLY")
-        print("="*80)
-        
         return {
             'results': results,
             'metrics': metrics,
@@ -676,13 +664,11 @@ class ScamDetectionEvaluator:
                 # Make API call
                 if self.use_structure_model:
                     response = make_api_call(self.llm, system_prompt, user_prompt,
-                                           enable_thinking=self.enable_thinking, structure_model=True)
-                    if self.enable_thinking or ('<think>' in response and '</think>' in response):
-                        import re
-                        response = re.sub(r'<think>.*?</think>', '', response, flags=re.DOTALL).strip()
-                    response = parse_structured_output(self.structure_model, response)
+                                           response_schema=None, enable_thinking=self.enable_thinking, use_structure_model=True, structure_model=self.structure_model)
+                    # Thinking tokens are automatically removed in make_api_call
+                    response = parse_structured_output(self.structure_model, response, EvaluationResponseSchema)
                 else:
-                    response = make_api_call(self.llm, system_prompt, user_prompt, structure_model=False)
+                    response = make_api_call(self.llm, system_prompt, user_prompt, response_schema=EvaluationResponseSchema, use_structure_model=False)
                 
                 # Extract prediction
                 predicted_scam = response.Phishing
@@ -895,13 +881,11 @@ class ScamDetectionEvaluator:
             
             if self.use_structure_model:
                 response = await make_api_call_async(self.llm, system_prompt, user_prompt,
-                                                   enable_thinking=self.enable_thinking, structure_model=True)
-                if self.enable_thinking or ('<think>' in response and '</think>' in response):
-                    import re
-                    response = re.sub(r'<think>.*?</think>', '', response, flags=re.DOTALL).strip()
-                response = await parse_structured_output_async(self.structure_model, response)
+                                                   response_schema=None, enable_thinking=self.enable_thinking, use_structure_model=True, structure_model=self.structure_model)
+                # Thinking tokens are automatically removed in make_api_call_async
+                response = await parse_structured_output_async(self.structure_model, response, EvaluationResponseSchema)
             else:
-                response = await make_api_call_async(self.llm, system_prompt, user_prompt, structure_model=False)
+                response = await make_api_call_async(self.llm, system_prompt, user_prompt, response_schema=EvaluationResponseSchema, use_structure_model=False)
             
             predicted_scam = response.Phishing
             predicted_label = 1 if predicted_scam else 0

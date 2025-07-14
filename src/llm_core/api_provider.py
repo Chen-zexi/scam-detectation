@@ -46,7 +46,16 @@ class LLM:
         else:
             raise ValueError(f"Unsupported provider: {self.provider}")
         
-    def get_structure_model(self, provider: str):
+    def get_structure_model(self, provider: str = None):
+        """Get a model for structure parsing. Defaults to OpenAI gpt-4.1-nano."""
+        # Always use OpenAI gpt-4.1-nano for structure parsing by default
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise ValueError("OPENAI_API_KEY is not set (required for structure model parsing)")
+        return ChatOpenAI(api_key=api_key, model="gpt-4.1-nano", temperature=0)
+        
+    def get_structure_model_legacy(self, provider: str):
+        """Legacy method for getting provider-specific structure models."""
         if provider == "lm-studio":
             host_ip = os.getenv("HOST_IP")
             if not host_ip:

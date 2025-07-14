@@ -23,7 +23,7 @@ from datetime import datetime
 from tqdm import tqdm
 
 from src.llm_core.api_provider import LLM
-from src.llm_core.api_call import make_api_call, parse_structured_output, make_api_call_async, parse_structured_output_async
+from src.llm_core.api_call import make_api_call, parse_structured_output, make_api_call_async, parse_structured_output_async, remove_thinking_tokens
 from src.utility.data_loader import DatasetLoader
 from src.utility.results_saver import ResultsSaver
 from pydantic import BaseModel
@@ -159,7 +159,7 @@ class LLMAnnotationPipeline:
             self.llm_instance = LLM(provider=self.provider, model=self.model)
             self.llm = self.llm_instance.get_llm()
             if self.use_structure_model:
-                self.structure_model = self.llm_instance.get_structure_model(provider='lm-studio')
+                self.structure_model = self.llm_instance.get_structure_model()  # Uses gpt-4.1-nano by default
             print(f"LLM initialized successfully: {self.provider} - {self.model}")
         except Exception as e:
             raise Exception(f"Error initializing LLM: {e}")
@@ -229,21 +229,16 @@ class LLMAnnotationPipeline:
             user_prompt = self.prompt_generator.create_annotation_prompt(row.to_dict(), str(row['label']))
             
             try:
-                if self.use_structure_model:
-                    # Make API call
-                    response = make_api_call(self.llm, system_prompt, user_prompt, enable_thinking=self.enable_thinking, structure_model=True)
-                    # Remove thinking tokens if they exist
-                    if self.enable_thinking or ('<think>' in response and '</think>' in response):
-                        import re
-                        # Remove everything between <think> and </think> tags
-                        response = re.sub(r'<think>.*?</think>', '', response, flags=re.DOTALL).strip()
-                    response = parse_structured_output(self.structure_model, response, AnnotationResponseSchema)
-                else:
-                    # Make API call with custom structured output for annotations
-                    prompt_template = self._get_annotation_prompt_template()
-                    messages = prompt_template.invoke({"system_prompt": system_prompt, "user_prompt": user_prompt})
-                    client = self.llm.with_structured_output(AnnotationResponseSchema)
-                    response = client.invoke(messages)
+                # Use generic API call with AnnotationResponseSchema
+                response = make_api_call(
+                    self.llm, 
+                    system_prompt, 
+                    user_prompt, 
+                    response_schema=AnnotationResponseSchema,
+                    enable_thinking=self.enable_thinking, 
+                    use_structure_model=self.use_structure_model,
+                    structure_model=self.structure_model if self.use_structure_model else None
+                )
                 
                 # Create comprehensive annotation record
                 annotation = self._create_annotation_record(i+1, row, response)
@@ -299,22 +294,16 @@ class LLMAnnotationPipeline:
                 user_prompt = self.prompt_generator.create_annotation_prompt(row.to_dict(), str(row['label']))
                 
                 try:
-                    if self.use_structure_model:
-                        # Make async API call
-                        response = await make_api_call_async(self.llm, system_prompt, user_prompt, 
-                                                           enable_thinking=self.enable_thinking, structure_model=True)
-                        # Remove thinking tokens if they exist
-                        if self.enable_thinking or ('<think>' in response and '</think>' in response):
-                            import re
-                            # Remove everything between <think> and </think> tags
-                            response = re.sub(r'<think>.*?</think>', '', response, flags=re.DOTALL).strip()
-                        response = await parse_structured_output_async(self.structure_model, response, AnnotationResponseSchema)
-                    else:
-                        # Make async API call with custom structured output for annotations
-                        prompt_template = self._get_annotation_prompt_template()
-                        messages = prompt_template.invoke({"system_prompt": system_prompt, "user_prompt": user_prompt})
-                        client = self.llm.with_structured_output(AnnotationResponseSchema)
-                        response = await client.ainvoke(messages)
+                    # Use generic async API call with AnnotationResponseSchema
+                    response = await make_api_call_async(
+                        self.llm, 
+                        system_prompt, 
+                        user_prompt, 
+                        response_schema=AnnotationResponseSchema,
+                        enable_thinking=self.enable_thinking, 
+                        use_structure_model=self.use_structure_model,
+                        structure_model=self.structure_model if self.use_structure_model else None
+                    )
                     
                     # Create comprehensive annotation record
                     annotation = self._create_annotation_record(i+1, row, response)
@@ -366,13 +355,6 @@ class LLMAnnotationPipeline:
         print(f"Average time per record: {total_time/len(valid_annotations):.2f} seconds")
         return valid_annotations
     
-    def _get_annotation_prompt_template(self):
-        """Get prompt template for annotations"""
-        from langchain_core.prompts import ChatPromptTemplate
-        return ChatPromptTemplate([
-            ("system", "{system_prompt}"),
-            ("user", "{user_prompt}")
-        ])
     
     def _create_annotation_record(self, 
                                  record_id: int, 
@@ -784,20 +766,16 @@ class LLMAnnotationPipeline:
                 system_prompt = self.prompt_generator.get_system_prompt()
                 user_prompt = self.prompt_generator.create_annotation_prompt(row.to_dict(), str(row['label']))
                 
-                # Make API call
-                if self.use_structure_model:
-                    response = make_api_call(self.llm, system_prompt, user_prompt,
-                                           enable_thinking=self.enable_thinking, structure_model=True)
-                    if self.enable_thinking or ('<think>' in response and '</think>' in response):
-                        import re
-                        response = re.sub(r'<think>.*?</think>', '', response, flags=re.DOTALL).strip()
-                    response = parse_structured_output(self.structure_model, response, AnnotationResponseSchema)
-                else:
-                    # Make API call with custom structured output for annotations
-                    prompt_template = self._get_annotation_prompt_template()
-                    messages = prompt_template.invoke({"system_prompt": system_prompt, "user_prompt": user_prompt})
-                    client = self.llm.with_structured_output(AnnotationResponseSchema)
-                    response = client.invoke(messages)
+                # Make API call using generic function
+                response = make_api_call(
+                    self.llm, 
+                    system_prompt, 
+                    user_prompt,
+                    response_schema=AnnotationResponseSchema,
+                    enable_thinking=self.enable_thinking,
+                    use_structure_model=self.use_structure_model,
+                    structure_model=self.structure_model if self.use_structure_model else None
+                )
                 
                 # Create annotation record
                 annotation = self._create_annotation_record(i, row, response)
@@ -997,19 +975,16 @@ class LLMAnnotationPipeline:
             system_prompt = self.prompt_generator.get_system_prompt()
             user_prompt = self.prompt_generator.create_annotation_prompt(row.to_dict(), str(row['label']))
             
-            if self.use_structure_model:
-                response = await make_api_call_async(self.llm, system_prompt, user_prompt,
-                                                   enable_thinking=self.enable_thinking, structure_model=True)
-                if self.enable_thinking or ('<think>' in response and '</think>' in response):
-                    import re
-                    response = re.sub(r'<think>.*?</think>', '', response, flags=re.DOTALL).strip()
-                response = await parse_structured_output_async(self.structure_model, response, AnnotationResponseSchema)
-            else:
-                # Make async API call with custom structured output for annotations
-                prompt_template = self._get_annotation_prompt_template()
-                messages = prompt_template.invoke({"system_prompt": system_prompt, "user_prompt": user_prompt})
-                client = self.llm.with_structured_output(AnnotationResponseSchema)
-                response = await client.ainvoke(messages)
+            # Use generic async API call
+            response = await make_api_call_async(
+                self.llm, 
+                system_prompt, 
+                user_prompt,
+                response_schema=AnnotationResponseSchema,
+                enable_thinking=self.enable_thinking,
+                use_structure_model=self.use_structure_model,
+                structure_model=self.structure_model if self.use_structure_model else None
+            )
             
             return self._create_annotation_record(index, row, response)
             

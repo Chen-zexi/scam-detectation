@@ -456,6 +456,9 @@ class InteractiveDatasetProcessor:
             
             structure_choice = input("Use structure model for parsing? (y/N): ").strip().lower()
             options['use_structure_model'] = structure_choice in ['y', 'yes']
+            
+            if options['use_structure_model']:
+                print("Note: Will use OpenAI gpt-4.1-nano for structured output parsing")
         
         return options
     

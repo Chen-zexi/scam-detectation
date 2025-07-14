@@ -24,7 +24,7 @@ from datetime import datetime
 from tqdm import tqdm
 
 from src.llm_core.api_provider import LLM
-from src.llm_core.api_call import make_api_call, parse_structured_output, make_api_call_async, parse_structured_output_async
+from src.llm_core.api_call import make_api_call_async
 from src.utility.results_saver import ResultsSaver
 from src.synthesize.transcript_prompts import get_model_config, get_prompt_for_category, MODEL_A_CONFIG, MODEL_B_CONFIG
 from pydantic import BaseModel
@@ -109,7 +109,8 @@ class TranscriptGenerator:
             
             # Setup structure model if needed
             if self.use_structure_model:
-                self.structure_model = LLM(provider='lm-studio', model='osmosis-structure-0.6b@f16').get_llm()
+                # Use the default structure model (gpt-4o-mini)
+                self.structure_model = self.model_a_instance.get_structure_model()
             
         except Exception as e:
             raise Exception(f"Error initializing models: {e}")
@@ -303,34 +304,26 @@ Please provide your response in the following format:
             # Create prompt
             prompt = self.create_generation_prompt(category, model_type)
             
-            # Generate transcript using direct LLM call
-            from langchain_core.prompts import ChatPromptTemplate
+            # System prompt for transcript generation
+            system_prompt = """You are an expert in generating realistic phone conversation transcripts.
+Generate a complete transcript following the given instructions. The transcript should be formatted as a dialogue between participants.
+
+Your response must include:
+- transcript: The full conversation transcript
+- classification: One of "LEGITIMATE", "OBVIOUS_SCAM", "BORDERLINE_SUSPICIOUS", "SUBTLE_SCAM"
+- category_assigned: The assigned category from the prompt
+- conversation_length: Number of dialogue turns
+- participant_demographics: Description of participants (e.g., "elderly_victim_young_scammer", "adult_mixed")
+- timestamp: ISO format timestamp"""
             
-            # Create a simple prompt template
-            prompt_template = ChatPromptTemplate.from_template(prompt)
-            messages = prompt_template.format_messages()
-            
-            # Make the API call directly
-            if hasattr(llm, 'ainvoke'):
-                response = await llm.ainvoke(messages)
-            else:
-                response = llm.invoke(messages)
-            
-            # Extract the content
-            if hasattr(response, 'content'):
-                response_text = response.content
-            else:
-                response_text = str(response)
-            
-            # Create a basic response structure
-            # In a real implementation, you'd want to parse the response more carefully
-            response_obj = TranscriptResponseSchema(
-                transcript=response_text[:1000] + "..." if len(response_text) > 1000 else response_text,
-                classification='OBVIOUS_SCAM' if any(word in response_text.lower() for word in ['scam', 'fraud', 'fake']) else 'LEGITIMATE',
-                category_assigned=category,
-                conversation_length=len(response_text.split()),
-                participant_demographics='adult_mixed',
-                timestamp=datetime.now().isoformat()
+            # Use the generic API call with TranscriptResponseSchema
+            response_obj = await make_api_call_async(
+                llm,
+                system_prompt,
+                prompt,
+                response_schema=TranscriptResponseSchema,
+                enable_thinking=False,
+                use_structure_model=False
             )
             
             return {
