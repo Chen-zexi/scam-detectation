@@ -1,4 +1,11 @@
-from .transcript_generator import TranscriptGenerator
-from .transcript_prompts import get_model_config, get_prompt_for_category
+from .synthesis_generator import SynthesisGenerator
+from .schema_builder import SchemaBuilder
+from .synthesis_prompts import SynthesisPromptsManager, load_synthesis_config, get_prompt_for_type
 
-__all__ = ['TranscriptGenerator', 'get_model_config', 'get_prompt_for_category']
+__all__ = [
+    'SynthesisGenerator',
+    'SchemaBuilder',
+    'SynthesisPromptsManager',
+    'load_synthesis_config',
+    'get_prompt_for_type'
+]

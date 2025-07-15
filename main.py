@@ -40,7 +40,7 @@ sys.path.append('src')
 
 from src.annotate import LLMAnnotationPipeline
 from src.evaluate import ScamDetectionEvaluator
-from src.synthesize import TranscriptGenerator
+from src.synthesize import SynthesisGenerator, SynthesisPromptsManager
 
 
 class InteractiveDatasetProcessor:
@@ -98,7 +98,7 @@ class InteractiveDatasetProcessor:
         print("-" * 40)
         print("1. Annotation - Generate structured annotations for datasets")
         print("2. Evaluation - Evaluate model performance on labeled datasets")
-        print("3. Transcript Generation - Generate realistic phone conversation transcripts")
+        print("3. Synthesis - Generate synthetic scam detection training data")
         
         while True:
             choice = input("\nSelect task type (1, 2, or 3): ").strip()
@@ -107,7 +107,7 @@ class InteractiveDatasetProcessor:
             elif choice == "2":
                 return "evaluation"
             elif choice == "3":
-                return "transcript_generation"
+                return "synthesis"
             else:
                 print("Please enter 1, 2, or 3")
 
@@ -222,6 +222,33 @@ class InteractiveDatasetProcessor:
             print("Make sure vLLM server is running and accessible")
             return []
 
+    def choose_synthesis_type(self) -> str:
+        """Prompts the user to select a synthesis type."""
+        print("\nSTEP 2a: Select Synthesis Type")
+        print("-" * 40)
+        
+        prompts_manager = SynthesisPromptsManager()
+        synthesis_types = prompts_manager.get_synthesis_types()
+        
+        print("Available synthesis types:")
+        for i, syn_type in enumerate(synthesis_types, 1):
+            type_info = prompts_manager.get_synthesis_type_info(syn_type)
+            print(f"{i}. {type_info.get('name', syn_type)}")
+            print(f"   {type_info.get('description', 'No description available')}")
+            print()
+        
+        while True:
+            try:
+                choice = int(input(f"Select synthesis type (1-{len(synthesis_types)}): ").strip())
+                if 1 <= choice <= len(synthesis_types):
+                    selected = synthesis_types[choice - 1]
+                    print(f"Selected: {prompts_manager.get_synthesis_type_info(selected).get('name', selected)}")
+                    return selected
+                else:
+                    print(f"Please enter a number between 1 and {len(synthesis_types)}")
+            except ValueError:
+                print("Please enter a valid number")
+    
     def choose_model(self, provider: str) -> str:
         """Prompts the user to select a model from the chosen provider."""
         print(f"\nSTEP 4: Select Model ({provider.upper()})")
@@ -259,12 +286,14 @@ class InteractiveDatasetProcessor:
 
     def _infer_task_from_filename(self, filename: str) -> str:
         """Infers task type from a checkpoint filename for backward compatibility."""
-        if 'transcript_generation' in filename:
-            return 'transcript_generation'
+        if 'transcript_generation' in filename or 'phone_transcript' in filename:
+            return 'synthesis'
         elif 'annotation' in filename:
             return 'annotation'
         elif 'evaluation' in filename:
             return 'evaluation'
+        elif any(syn_type in filename for syn_type in ['phishing_email', 'sms_scam']):
+            return 'synthesis'
         else:
             return 'unknown'
 
@@ -285,10 +314,12 @@ class InteractiveDatasetProcessor:
                     with open(checkpoint_file, 'r') as f:
                         checkpoint_data = json.load(f)
                     
+                    # Handle both total_records and total_target for compatibility
+                    total = checkpoint_data.get('total_records', checkpoint_data.get('total_target', 0))
                     checkpoints.append({
                         'file': str(checkpoint_file),
                         'name': checkpoint_file.name,
-                        'progress': f"{checkpoint_data.get('current_index', 0):,}/{checkpoint_data.get('total_records', 0):,}",
+                        'progress': f"{checkpoint_data.get('current_index', 0):,}/{total:,}",
                         'provider': checkpoint_data.get('provider', 'Unknown'),
                         'model': checkpoint_data.get('model', 'Unknown'),
                         'timestamp': checkpoint_data.get('timestamp', 'Unknown'),
@@ -307,10 +338,12 @@ class InteractiveDatasetProcessor:
                     # Only include checkpoints for the current task
                     file_task = self._infer_task_from_filename(checkpoint_file.name)
                     if file_task == task:
+                        # Handle both total_records and total_target for compatibility
+                        total = checkpoint_data.get('total_records', checkpoint_data.get('total_target', 0))
                         checkpoints.append({
                             'file': str(checkpoint_file),
                             'name': checkpoint_file.name,
-                            'progress': f"{checkpoint_data.get('current_index', 0):,}/{checkpoint_data.get('total_records', 0):,}",
+                            'progress': f"{checkpoint_data.get('current_index', 0):,}/{total:,}",
                             'provider': checkpoint_data.get('provider', 'Unknown'),
                             'model': checkpoint_data.get('model', 'Unknown'),
                             'timestamp': checkpoint_data.get('timestamp', 'Unknown'),
@@ -398,10 +431,12 @@ class InteractiveDatasetProcessor:
                 options['sample_size'] = total_records
                 options['balanced_sample'] = False
         else:
-            # For transcript generation, use the configured number of transcripts
+            # For synthesis, use the configured number of items
             options['sample_size'] = self.config['dataset']['records']
             options['balanced_sample'] = False
-            print(f"\nTranscript Generation: Will generate {options['sample_size']:,} transcripts")
+            if self.config['task'] == 'synthesis':
+                type_info = SynthesisPromptsManager().get_synthesis_type_info(self.config.get('synthesis_type', 'phone_transcript'))
+                print(f"\nSynthesis Generation: Will generate {options['sample_size']:,} {type_info.get('name', 'items')}")
         
         # Checkpoint interval
         default_interval = min(1000, max(1, options['sample_size'] // 10)) if options['sample_size'] < 10000 else 1000
@@ -410,10 +445,10 @@ class InteractiveDatasetProcessor:
         options['checkpoint_interval'] = max(1, checkpoint_interval)  # Ensure it's at least 1
         
         # Async processing
-        if self.config['task'] == 'transcript_generation':
-            # Transcript generation is always async
+        if self.config['task'] == 'synthesis':
+            # Synthesis is always async
             options['use_async'] = True
-            print("\nTranscript generation uses async processing by default.")
+            print("\nSynthesis generation uses async processing by default.")
             default_concurrent = 5  # More conservative default for generation
             concurrent_input = input(f"Number of concurrent requests (default: {default_concurrent}): ").strip()
             options['concurrent_requests'] = int(concurrent_input) if concurrent_input else default_concurrent
@@ -437,15 +472,15 @@ class InteractiveDatasetProcessor:
             else:
                 options['content_columns'] = None
         else:
-            # Transcript generation doesn't use content columns
+            # Synthesis doesn't use content columns
             options['content_columns'] = None
         
         # Advanced options (vary by task)
-        if self.config['task'] == 'transcript_generation':
-            # Use default settings for transcript generation (bypass advanced options)
+        if self.config['task'] == 'synthesis':
+            # Use default settings for synthesis (bypass advanced options)
             options['enable_thinking'] = False
             options['use_structure_model'] = False
-            print("\nUsing default settings for transcript generation (thinking tokens: disabled, structure model: disabled)")
+            print("\nUsing default settings for synthesis generation (thinking tokens: disabled, structure model: disabled)")
             
         else:
             print("\nAdvanced options:")
@@ -524,8 +559,9 @@ class InteractiveDatasetProcessor:
         print("="*50)
         print(f"Task: {self.config['task']}")
         
-        if self.config['task'] == 'transcript_generation':
-            print(f"Transcripts to generate: {self.config['dataset']['records']:,}")
+        if self.config['task'] == 'synthesis':
+            print(f"Synthesis type: {self.config.get('synthesis_type', 'unknown')}")
+            print(f"Items to generate: {self.config['dataset']['records']:,}")
         else:
             print(f"Dataset: {self.config['dataset']['name']} ({self.config['dataset']['records']:,} total records)")
             
@@ -620,25 +656,27 @@ class InteractiveDatasetProcessor:
                     enable_thinking=self.config['enable_thinking'],
                     use_structure_model=self.config['use_structure_model']
                 )
-            else:  # transcript_generation
-                processor = TranscriptGenerator(
-                    sample_size=total_records,
-                    output_dir="results/generation",
-                    enable_thinking=self.config['enable_thinking'],
-                    use_structure_model=self.config['use_structure_model'],
-                    selected_model=self.config['model'],
-                    selected_provider=self.config['provider']
-                )
+            else:  # synthesis
+                # Use generic SynthesisGenerator for all synthesis types
+                processor = SynthesisGenerator(
+                        synthesis_type=self.config['synthesis_type'],
+                        sample_size=total_records,
+                        output_dir="results/synthesis",
+                        provider=self.config['provider'],
+                        model=self.config['model'],
+                        enable_thinking=self.config['enable_thinking'],
+                        use_structure_model=self.config['use_structure_model']
+                    )
             
             # Run processing
             start_time = time.time()
             
-            # Handle transcript generation separately as it's always async
-            if self.config['task'] == "transcript_generation":
-                # Transcript generation is always async
+            # Handle synthesis separately as it's always async
+            if self.config['task'] == "synthesis":
+                # Synthesis is always async
                 results = await processor.process_full_generation_with_checkpoints(
                     checkpoint_interval=self.config['checkpoint_interval'],
-                    checkpoint_dir="checkpoints/generation",
+                    checkpoint_dir="checkpoints/synthesis",
                     resume_from_checkpoint=resume_from_checkpoint,
                     concurrent_requests=self.config['concurrent_requests'],
                     override_compatibility=override_compatibility
@@ -707,17 +745,17 @@ class InteractiveDatasetProcessor:
                     pass  # Ignore cleanup errors
             
             # Print results
-            if self.config['task'] == "transcript_generation":
-                # For transcript generation, results have a different structure
+            if self.config['task'] == "synthesis":
+                # For synthesis, results have a different structure
                 if 'status' in results and results['status'] == 'completed':
-                    print(f"\nTranscript generation completed successfully!")
+                    print(f"\nSynthesis generation completed successfully!")
                     if 'results' in results:
                         save_results = results['results']
-                        print(f"Generated: {save_results.get('success_count', 0)} transcripts")
-                        print(f"Errors: {save_results.get('error_count', 0)} transcripts")
+                        print(f"Generated: {save_results.get('success_count', 0)} items")
+                        print(f"Errors: {save_results.get('error_count', 0)} items")
                         print(f"Results saved to: {save_results.get('detailed_results', 'Unknown')}")
                 else:
-                    print(f"\nTranscript generation failed: {results.get('error', 'Unknown error')}")
+                    print(f"\nSynthesis generation failed: {results.get('error', 'Unknown error')}")
             else:
                 self.print_results_summary(results)
             
@@ -793,7 +831,7 @@ class InteractiveDatasetProcessor:
             print(f"  Success rate: {summary.get('success_rate', 0):.2%}")
             if 'usability_rate' in summary:
                 print(f"  Usability rate: {summary['usability_rate']:.2%}")
-        else:  # transcript_generation
+        else:  # synthesis
             print(f"  Successful generations: {summary.get('success_count', 0):,}")
             print(f"  Errors: {summary.get('error_count', 0):,}")
             print(f"  Success rate: {summary.get('success_rate', 0):.2%}")
@@ -807,14 +845,16 @@ class InteractiveDatasetProcessor:
         # Step-by-step configuration
         self.config['task'] = self.choose_task()
         
-        # For transcript generation, we don't need to select an existing dataset
-        if self.config['task'] == "transcript_generation":
-            # Get sample size for transcript generation
-            print("\nSTEP 2: Configure Transcript Generation")
+        # For synthesis, we need to select the synthesis type
+        if self.config['task'] == "synthesis":
+            self.config['synthesis_type'] = self.choose_synthesis_type()
+            
+            # Get sample size for synthesis
+            print("\nSTEP 2b: Configure Synthesis Generation")
             print("-" * 40)
             while True:
                 try:
-                    sample_size = int(input("Enter number of transcripts to generate (default: 1000): ").strip() or "1000")
+                    sample_size = int(input("Enter number of items to generate (default: 100): ").strip() or "100")
                     if sample_size > 0:
                         break
                     else:
@@ -822,11 +862,15 @@ class InteractiveDatasetProcessor:
                 except ValueError:
                     print("Please enter a valid number")
             
+            # Get synthesis type info
+            prompts_manager = SynthesisPromptsManager()
+            type_info = prompts_manager.get_synthesis_type_info(self.config['synthesis_type'])
+            
             self.config['dataset'] = {
-                'path': 'generated_transcripts',
-                'name': 'Generated Transcripts',
-                'directory': 'results',
-                'columns': ['transcript', 'classification', 'category_assigned'],
+                'path': f'generated_{self.config["synthesis_type"]}',
+                'name': type_info.get('name', 'Generated Data'),
+                'directory': 'results/synthesis',
+                'columns': list(prompts_manager.get_response_schema(self.config['synthesis_type']).keys()),
                 'records': sample_size
             }
         else:
@@ -839,8 +883,8 @@ class InteractiveDatasetProcessor:
         processing_options = self.configure_processing_options()
         self.config.update(processing_options)
         
-        # Only offer checkpoint options if processing full dataset (or transcript generation)
-        if (self.config['task'] == 'transcript_generation' or 
+        # Only offer checkpoint options if processing full dataset (or synthesis)
+        if (self.config['task'] == 'synthesis' or 
             self.config.get('sample_size', self.config['dataset']['records']) == self.config['dataset']['records']):
             self.config['checkpoint_file'] = self.choose_checkpoint()
         else:
