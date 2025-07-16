@@ -1,0 +1,231 @@
+{
+  "synthesis_types": {
+    "phone_transcript": {
+      "name": "Phone Conversation Transcript",
+      "description": "Realistic phone conversations for scam detection training",
+      "llm_response_schema": {
+        "transcript": {
+          "type": "string",
+          "description": "The complete phone conversation with speaker identification"
+        },
+        "conversation_length": {
+          "type": "integer",
+          "description": "Approximate length in words"
+        },
+        "participant_demographics": {
+          "type": "string",
+          "description": "Brief description of participants"
+        }
+      },
+      "metadata_schema": {
+        "classification": {
+          "type": "string",
+          "enum": ["LEGITIMATE", "OBVIOUS_SCAM", "BORDERLINE_SUSPICIOUS", "SUBTLE_SCAM"],
+          "description": "Classification of the conversation"
+        },
+        "category": {
+          "type": "string",
+          "description": "The specific category of the conversation"
+        },
+        "timestamp": {
+          "type": "string",
+          "description": "Current timestamp in ISO format"
+        },
+        "synthesis_type": {
+          "type": "string",
+          "description": "Type of synthesis"
+        },
+        "id": {
+          "type": "integer",
+          "description": "Unique identifier"
+        },
+        "generation_timestamp": {
+          "type": "string",
+          "description": "When this was generated"
+        }
+      },
+      "system_prompt": "You are an expert in generating realistic phone conversation transcripts for scam detection training.\nYour task is to create authentic, detailed phone conversations that can be used to train AI models\nto detect various types of scams and legitimate calls.\n\nGUIDELINES:\n- Generate realistic, natural-sounding phone conversations\n- Include proper speaker identification: [CALLER] and [RECIPIENT]\n- Vary conversation length between 2-4 minutes of dialogue\n- Include realistic details like background sounds, interruptions, natural speech patterns\n- Make conversations feel authentic and believable\n- Include appropriate demographics and context for participants",
+      "categories": {
+        "authority_scam": {
+          "name": "Authority Impersonation Scam",
+          "classification": "OBVIOUS_SCAM",
+          "prompt_template": "Generate realistic phone conversation transcripts where callers impersonate authority figures or trusted institutions. Focus on creating structured, official-sounding dialogue with specific red flags.\n\nAUTHORITY TYPES TO IMPERSONATE:\n- Government agencies (IRS, Social Security Administration, FBI, Medicare, Immigration)\n- Banks and credit unions (Chase, Bank of America, Wells Fargo, local credit unions)\n- Tech companies (Microsoft, Apple, Google, Amazon)\n- Utility companies (electric, gas, water, internet providers)\n- Healthcare organizations (insurance companies, Medicare, hospitals)\n- Law enforcement (police, sheriff, court system)\n\nCONVERSATION STRUCTURE:\n1. Professional opening with official identification\n2. Claim of urgent issue requiring immediate attention\n3. Gradual escalation of consequences if not resolved\n4. Request for verification of personal information\n5. Pressure for immediate payment or action\n\nREALISTIC DIALOGUE ELEMENTS:\n- Use official-sounding language and terminology\n- Include fake badge numbers, case numbers, reference numbers\n- Mention specific laws or regulations (even if incorrect)\n- Reference 'our records show' or 'our system indicates'\n- Include background sounds: [typing], [office chatter], [phone ringing]\n\nVICTIM RESPONSE PATTERNS:\n- Initial compliance and concern\n- Gradual questioning and skepticism\n- Attempts to verify caller identity\n- Confusion about unexpected contact\n- Fear-based compliance or resistance"
+        },
+        "tech_support_scam": {
+          "name": "Tech Support Scam",
+          "classification": "OBVIOUS_SCAM",
+          "prompt_template": "Create realistic tech support scam conversations featuring callers claiming to help with computer problems. Focus on technical jargon mixed with social engineering tactics.\n\nTECH SUPPORT SCENARIOS:\n- Microsoft Windows security alerts\n- Apple iCloud security breaches\n- Internet service provider technical issues\n- Antivirus software expired/infected\n- Computer running slowly due to viruses\n- Suspicious activity on IP address\n- Router/WiFi security compromised\n- Email account hacked\n\nTECHNICAL LANGUAGE TO INCLUDE:\n- 'Your computer is sending error messages to our servers'\n- 'We've detected malware on IP address [fake IP]'\n- 'Your Windows license has expired'\n- 'Hackers are accessing your personal information'\n- 'Your firewall has been compromised'\n- 'Suspicious downloads detected on your network'\n\nCONVERSATION PROGRESSION:\n1. Urgent computer security warning\n2. Request to check computer for 'proof' of infection\n3. Instructions to download remote access software\n4. Claim of discovering serious problems\n5. Offer to fix for immediate payment\n\nREALISTIC ELEMENTS:\n- Heavy accents or unclear speech patterns\n- Background call center noise [multiple voices], [typing]\n- Mispronunciations of technical terms\n- Inconsistent technical explanations\n- Pressure to stay on the line while 'checking'"
+        },
+        "legitimate_customer_service": {
+          "name": "Legitimate Customer Service",
+          "classification": "LEGITIMATE",
+          "prompt_template": "Generate authentic customer service conversations from legitimate businesses. Focus on professional, helpful service with proper protocols and realistic business interactions.\n\nLEGITIMATE BUSINESS TYPES:\n- Banking (account inquiries, card issues, loan information)\n- Insurance (policy questions, claims, coverage changes)\n- Utilities (billing, service appointments, outage reports)\n- Healthcare (appointment scheduling, insurance verification, test results)\n- Retail (order status, returns, product information)\n- Telecommunications (service issues, billing, plan changes)\n\nPROFESSIONAL SERVICE ELEMENTS:\n- Proper greeting with company name and agent name\n- Security verification using appropriate information\n- Clear explanation of call purpose\n- Patient, helpful responses to questions\n- Proper call handling procedures\n- Professional closing\n\nREALISTIC CONVERSATION FLOW:\n1. Professional company greeting\n2. Purpose of call or response to customer inquiry\n3. Security verification when appropriate\n4. Addressing customer needs with helpful information\n5. Clear next steps or resolution\n6. Professional closing\n\nAPPROPRIATE SECURITY MEASURES:\n- Asking for last four digits of SSN or account number\n- Verifying address or phone number on file\n- Using information customer should reasonably know\n- Never asking for full SSN, passwords, or PINs\n- Offering to send written confirmation"
+        },
+        "urgency_scam": {
+          "name": "Urgency-Based Scam",
+          "classification": "OBVIOUS_SCAM",
+          "prompt_template": "Create high-pressure scam conversations using conversational, natural language that emphasizes time constraints and immediate action. Focus on emotional manipulation through urgency.\n\nURGENCY SCENARIOS:\n- Limited-time offers expiring 'today only'\n- Account suspension requiring immediate verification\n- Legal action that can only be stopped by immediate payment\n- Prize winnings that must be claimed within hours\n- Medical emergency requiring immediate payment\n- Utility disconnection happening 'within 2 hours'\n- Credit card fraud requiring immediate action\n\nCONVERSATIONAL URGENCY TACTICS:\n- 'I can only hold this offer for the next 10 minutes'\n- 'Your account will be permanently closed in 24 hours'\n- 'This is your final notice before legal action'\n- 'We're required to disconnect your service today unless...'\n- 'Time is running out - I need to act fast to help you'\n- 'My supervisor is only allowing this discount until 5 PM'\n\nEMOTIONAL PRESSURE TECHNIQUES:\n- Creating false sense of emergency\n- Implying dire consequences for inaction\n- Offering 'one-time only' solutions\n- Claiming to be doing victim a 'special favor'\n- Using countdown language ('only 3 spots left')\n- Suggesting others are taking advantage of offer\n\nNATURAL CONVERSATION PATTERNS:\n- Interrupting victim attempts to think or consult others\n- Speaking quickly to create confusion\n- Using familiar, friendly tone to build false trust\n- Sharing fake personal stories to create connection\n- Acting frustrated when victim hesitates"
+        },
+        "financial_fraud": {
+          "name": "Financial Fraud",
+          "classification": "OBVIOUS_SCAM",
+          "prompt_template": "Generate realistic financial fraud conversations using natural, conversational language that targets money through various deceptive schemes.\n\nFINANCIAL FRAUD TYPES:\n- Investment opportunities with guaranteed returns\n- Debt consolidation or loan modification scams\n- Fake charity solicitations\n- Prize/lottery scams requiring fees\n- Refund scams (fake overpayments)\n- Credit repair services\n- Government grant scams\n- Cryptocurrency/trading opportunities\n\nCONVERSATIONAL FINANCIAL TACTICS:\n- 'I can guarantee you'll double your money in 30 days'\n- 'You've already been approved for this loan'\n- 'We can eliminate your debt completely'\n- 'This investment is completely risk-free'\n- 'You've won, but we need processing fees first'\n- 'The government owes you money'\n- 'I can fix your credit score overnight'\n\nNATURAL PERSUASION TECHNIQUES:\n- Sharing fake success stories from 'other customers'\n- Using financial jargon to sound legitimate\n- Creating false sense of exclusivity\n- Offering 'insider information' or 'secret opportunities'\n- Building rapport through financial sympathy\n- Using testimonials and fake references\n\nREALISTIC CONVERSATION ELEMENTS:\n- Casual, friendly approach to financial topics\n- Gradual revelation of 'opportunity'\n- Handling of financial objections with more promises\n- Creating urgency around financial benefits\n- Using emotional appeals about financial security"
+        },
+        "legitimate_personal": {
+          "name": "Legitimate Personal/Business Call",
+          "classification": "LEGITIMATE",
+          "prompt_template": "Create authentic personal and business phone conversations using natural, conversational language patterns. Focus on genuine interactions between real people.\n\nLEGITIMATE PERSONAL CALL TYPES:\n- Family members coordinating plans\n- Friends catching up or making social arrangements\n- Neighbors discussing community issues\n- Personal service providers (contractors, repair services)\n- Appointment confirmations from service providers\n- School or organization notifications\n- Real estate inquiries\n- Job-related communications\n\nLEGITIMATE BUSINESS CALL TYPES:\n- B2B service inquiries and follow-ups\n- Vendor communications and orders\n- Professional networking conversations\n- Client relationship management\n- Partnership discussions\n- Supplier communications\n- Industry peer consultations\n\nNATURAL CONVERSATION CHARACTERISTICS:\n- Casual, familiar tone between known parties\n- Natural interruptions and conversational overlap\n- Shared context and references\n- Genuine interest in other person's responses\n- Realistic small talk and relationship building\n- Appropriate use of names and personal details\n\nREALISTIC PERSONAL EXAMPLES:\nFamily calls about weekend plans, health updates, or coordinating events\nFriend calls to catch up, make plans, or share news\nService provider calls to schedule or confirm appointments\n\nREALISTIC BUSINESS EXAMPLES:\nB2B follow-ups on previous discussions or proposals\nProfessional networking after conferences or events\nVendor check-ins about orders or service needs"
+        },
+        "borderline_suspicious": {
+          "name": "Borderline Suspicious Call",
+          "classification": "BORDERLINE_SUSPICIOUS",
+          "prompt_template": "Create ambiguous phone conversations that could be either legitimate or suspicious, using conversational patterns that make classification difficult.\n\nBORDERLINE SCENARIOS:\n- Aggressive but potentially legitimate debt collection\n- High-pressure sales tactics for real products/services\n- Charity solicitations with emotional manipulation\n- Political campaign calls with donation requests\n- Real estate investment opportunities with pressure tactics\n- Extended warranty offers with pushy sales techniques\n- Survey calls that seem to gather too much information\n- Subscription services with confusing cancellation policies\n\nAMBIGUOUS CONVERSATION ELEMENTS:\n- Real company names but questionable practices\n- Legitimate services sold through pressure tactics\n- Truthful information mixed with misleading claims\n- Professional language with uncomfortable requests\n- Valid business purposes with inappropriate urgency\n- Real products with exaggerated benefits\n\nREALISTIC BORDERLINE TACTICS:\n- Using legitimate business information inappropriately\n- Applying pressure that feels excessive but isn't clearly illegal\n- Making claims that are technically true but misleading\n- Requesting information that seems reasonable but feels wrong\n- Using emotional appeals that border on manipulation\n- Creating urgency for legitimate but unnecessary services\n\nEXAMPLE SCENARIOS:\nDebt collectors using aggressive but legal tactics\nLegitimate charities using high-pressure donation tactics\nReal warranty companies with pushy sales approaches\nPolitical campaigns with emotional fundraising appeals"
+        },
+        "subtle_scam": {
+          "name": "Subtle Scam",
+          "classification": "SUBTLE_SCAM",
+          "prompt_template": "Create sophisticated scam conversations that appear largely legitimate but contain subtle red flags that trained detection models should identify.\n\nSUBTLE SCAM CHARACTERISTICS:\n- Mostly professional and believable presentation\n- Small inconsistencies in company information\n- Slightly inappropriate information requests\n- Mild pressure tactics disguised as helpfulness\n- Legitimate-sounding offers with hidden problems\n- Professional language with subtle manipulation\n\nSUBTLE RED FLAGS TO INCLUDE:\n- Requesting information companies shouldn't need\n- Slight urgency where none should exist\n- Benefits that seem too good to be true but not obviously so\n- Verification requests that feel slightly off\n- Professional demeanor with inappropriate curiosity\n- Legitimate services with unnecessary payment methods\n\nSOPHISTICATED MANIPULATION TECHNIQUES:\n- Building extensive rapport before making requests\n- Using mostly accurate company information\n- Demonstrating knowledge of victim's actual accounts/services\n- Making reasonable requests followed by inappropriate ones\n- Creating false sense of security through professionalism\n- Using legitimate business practices as cover for fraud\n\nEXAMPLE APPROACHES:\nBanks calling about 'security updates' that require verification\nInsurance companies offering 'special rates' with hidden catches\nUtility companies with 'billing errors' in customer's favor\nGovernment agencies with 'unclaimed benefits' requiring fees"
+        }
+      }
+    },
+    "phishing_email": {
+      "name": "Phishing Email",
+      "description": "Deceptive emails designed to steal credentials or personal information",
+      "llm_response_schema": {
+        "subject": {
+          "type": "string",
+          "description": "Email subject line"
+        },
+        "sender": {
+          "type": "string",
+          "description": "Sender email address"
+        },
+        "body": {
+          "type": "string",
+          "description": "Email body content"
+        },
+        "urgency_level": {
+          "type": "string",
+          "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"],
+          "description": "Level of urgency used in the email"
+        },
+        "target_organization": {
+          "type": "string",
+          "description": "Organization being impersonated"
+        }
+      },
+      "metadata_schema": {
+        "classification": {
+          "type": "string",
+          "enum": ["LEGITIMATE", "PHISHING", "SUSPICIOUS"],
+          "description": "Classification of the email"
+        },
+        "category": {
+          "type": "string",
+          "description": "Specific category of phishing attempt"
+        },
+        "timestamp": {
+          "type": "string",
+          "description": "Generation timestamp"
+        },
+        "synthesis_type": {
+          "type": "string",
+          "description": "Type of synthesis"
+        },
+        "id": {
+          "type": "integer",
+          "description": "Unique identifier"
+        },
+        "generation_timestamp": {
+          "type": "string",
+          "description": "When this was generated"
+        }
+      },
+      "system_prompt": "You are an expert in generating realistic phishing emails for security training.\nCreate emails that demonstrate various phishing techniques while maintaining realism.\n\nGUIDELINES:\n- Generate complete emails with headers and body\n- Include realistic sender addresses and subject lines\n- Vary sophistication levels from obvious to subtle\n- Include common phishing indicators when appropriate\n- Make emails contextually appropriate",
+      "categories": {
+        "account_verification": {
+          "name": "Account Verification Phishing",
+          "classification": "PHISHING",
+          "prompt_template": "Generate a phishing email that attempts to steal credentials through fake account verification.\n\nCOMMON SCENARIOS:\n- Bank account suspended\n- Email storage full\n- Password expiring\n- Unusual activity detected\n- Account upgrade required\n\nInclude typical phishing elements like urgency, fear tactics, and credential requests."
+        },
+        "prize_notification": {
+          "name": "Prize/Lottery Scam",
+          "classification": "PHISHING",
+          "prompt_template": "Create a phishing email claiming the recipient has won a prize or lottery.\n\nELEMENTS TO INCLUDE:\n- Unexpected prize winning\n- Request for personal information\n- Processing fees\n- Time limits\n- Official-looking logos or references"
+        },
+        "legitimate_business": {
+          "name": "Legitimate Business Email",
+          "classification": "LEGITIMATE",
+          "prompt_template": "Generate a legitimate business email that follows proper security practices.\n\nLEGITIMATE CHARACTERISTICS:\n- No credential requests via email\n- Clear sender identification\n- Professional language\n- Appropriate security notices\n- Contact information for verification"
+        }
+      }
+    },
+    "sms_scam": {
+      "name": "SMS Scam Message",
+      "description": "Deceptive text messages for scam detection training",
+      "llm_response_schema": {
+        "message": {
+          "type": "string",
+          "description": "The SMS message content"
+        },
+        "sender": {
+          "type": "string",
+          "description": "Sender ID or phone number"
+        },
+        "contains_link": {
+          "type": "boolean",
+          "description": "Whether the message contains a link"
+        },
+        "urgency_indicators": {
+          "type": "integer",
+          "description": "Number of urgency indicators present"
+        }
+      },
+      "metadata_schema": {
+        "classification": {
+          "type": "string",
+          "enum": ["LEGITIMATE", "SCAM", "SUSPICIOUS"],
+          "description": "Classification of the message"
+        },
+        "category": {
+          "type": "string",
+          "description": "Type of SMS scam"
+        },
+        "timestamp": {
+          "type": "string",
+          "description": "Generation timestamp"
+        },
+        "synthesis_type": {
+          "type": "string",
+          "description": "Type of synthesis"
+        },
+        "id": {
+          "type": "integer",
+          "description": "Unique identifier"
+        },
+        "generation_timestamp": {
+          "type": "string",
+          "description": "When this was generated"
+        }
+      },
+      "system_prompt": "You are an expert in generating realistic SMS messages for scam detection training.\nCreate messages that demonstrate various SMS scam techniques.\n\nGUIDELINES:\n- Keep messages under 160 characters when possible\n- Use realistic SMS language and abbreviations\n- Include common SMS scam patterns\n- Vary sender IDs appropriately",
+      "categories": {
+        "package_delivery": {
+          "name": "Package Delivery Scam",
+          "classification": "SCAM",
+          "prompt_template": "Generate an SMS scam about package delivery issues.\n\nCOMMON ELEMENTS:\n- Fake tracking links\n- Delivery fee requests\n- Missed delivery claims\n- Address confirmation requests\n- Popular carrier impersonation (USPS, FedEx, UPS, DHL)"
+        },
+        "banking_alert": {
+          "name": "Banking Alert Scam",
+          "classification": "SCAM",
+          "prompt_template": "Create an SMS scam impersonating a bank.\n\nSCENARIOS:\n- Account locked/suspended\n- Suspicious transaction alerts\n- Card blocked notifications\n- Security update required\n- Verification requests"
+        },
+        "legitimate_notification": {
+          "name": "Legitimate SMS Notification",
+          "classification": "LEGITIMATE",
+          "prompt_template": "Generate a legitimate SMS notification.\n\nLEGITIMATE TYPES:\n- Appointment reminders\n- Delivery confirmations\n- Two-factor authentication codes\n- Service updates\n- Marketing messages with proper opt-out"
+        }
+      }
+    }
+  }
+}

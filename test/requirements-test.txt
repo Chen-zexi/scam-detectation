@@ -1,0 +1,27 @@
+# Test dependencies for ScamAI detection pipeline
+
+# Core testing framework
+pytest>=7.0.0
+pytest-asyncio>=0.21.0  # For async test support
+pytest-cov>=4.0.0       # For coverage reports
+pytest-mock>=3.10.0     # Enhanced mocking capabilities
+
+# Additional testing utilities
+pytest-xdist>=3.0.0     # For parallel test execution
+pytest-timeout>=2.1.0   # For test timeout management
+pytest-benchmark>=4.0.0 # For performance benchmarking tests
+
+# Coverage and reporting
+coverage>=7.0.0
+pytest-html>=3.1.0      # HTML test reports
+
+# Development dependencies
+black>=23.0.0            # Code formatting
+isort>=5.12.0           # Import sorting
+flake8>=6.0.0           # Linting
+mypy>=1.0.0             # Type checking
+
+# Mocking and fixtures
+factory-boy>=3.2.0      # Test data generation
+freezegun>=1.2.0        # Time mocking
+responses>=0.23.0       # HTTP mocking
