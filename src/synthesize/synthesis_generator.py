@@ -21,6 +21,7 @@ from src.llm_core.api_provider import LLM
 from src.llm_core.api_call import make_api_call_async
 from src.synthesize.schema_builder import SchemaBuilder
 from src.synthesize.synthesis_prompts import SynthesisPromptsManager
+from src.database import get_scam_data_service
 
 
 class SynthesisGenerator:
@@ -37,7 +38,8 @@ class SynthesisGenerator:
                  provider: str = "openai",
                  model: str = "gpt-4o-mini",
                  enable_thinking: bool = False,
-                 use_structure_model: bool = False):
+                 use_structure_model: bool = False,
+                 save_to_mongodb: bool = True):
         """
         Initialize the synthesis generator.
         
@@ -50,6 +52,7 @@ class SynthesisGenerator:
             model: Model name
             enable_thinking: Whether to enable thinking tokens
             use_structure_model: Whether to use structured output parsing
+            save_to_mongodb: Whether to save results to MongoDB database
         """
         self.synthesis_type = synthesis_type
         self.sample_size = sample_size
@@ -58,6 +61,7 @@ class SynthesisGenerator:
         self.model = model
         self.enable_thinking = enable_thinking
         self.use_structure_model = use_structure_model
+        self.save_to_mongodb = save_to_mongodb
         
         # Initialize components
         self.prompts_manager = SynthesisPromptsManager(config_path)
@@ -345,7 +349,36 @@ Ensure all fields are included in your response."""
             f.write(f"\nGeneration completed: {timestamp}\n")
             f.write(f"Model: {self.provider} - {self.model}\n")
         
-        return {
+        # Save to MongoDB if enabled
+        mongodb_result = None
+        if self.save_to_mongodb and successful_results:
+            try:
+                print("Saving data to MongoDB...")
+                db_service = get_scam_data_service()
+                mongodb_result = db_service.store_synthesis_results(
+                    synthesis_type=self.synthesis_type,
+                    results=successful_results
+                )
+                
+                if mongodb_result.get('success'):
+                    print(f"✅ Successfully saved {mongodb_result['inserted_count']} records to MongoDB collection: {mongodb_result['collection']}")
+                    # Add MongoDB info to report
+                    with open(report_path, 'a') as f:
+                        f.write(f"\nMongoDB Storage:\n")
+                        f.write(f"  Collection: {mongodb_result['collection']}\n")
+                        f.write(f"  Documents stored: {mongodb_result['inserted_count']}\n")
+                        if mongodb_result.get('errors'):
+                            f.write(f"  Errors: {len(mongodb_result['errors'])}\n")
+                else:
+                    print(f"❌ Failed to save to MongoDB: {mongodb_result.get('error', 'Unknown error')}")
+                    
+            except Exception as e:
+                print(f"❌ Error saving to MongoDB: {e}")
+                mongodb_result = {'success': False, 'error': str(e)}
+        elif self.save_to_mongodb and not successful_results:
+            print("⚠️ No successful results to save to MongoDB")
+        
+        result = {
             'detailed_results': str(detailed_path),
             'summary_json': str(summary_path),
             'summary_report': str(report_path),
@@ -353,6 +386,12 @@ Ensure all fields are included in your response."""
             'error_count': len(error_results),
             'total_count': len(results)
         }
+        
+        # Add MongoDB result to return data
+        if mongodb_result:
+            result['mongodb_result'] = mongodb_result
+            
+        return result
     
     def _get_checkpoint_filename(self) -> str:
         """Generate checkpoint filename."""

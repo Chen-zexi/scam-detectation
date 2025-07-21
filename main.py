@@ -665,7 +665,8 @@ class InteractiveDatasetProcessor:
                         provider=self.config['provider'],
                         model=self.config['model'],
                         enable_thinking=self.config['enable_thinking'],
-                        use_structure_model=self.config['use_structure_model']
+                        use_structure_model=self.config['use_structure_model'],
+                        save_to_mongodb=True  # Enable MongoDB saving by default
                     )
             
             # Run processing
