@@ -13,7 +13,7 @@ class ResultsSaver:
         self.provider = provider
         self.model = model
         self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.results_dir = Path(f"results/{dataset_name}/{self.timestamp}")
+        self.results_dir = Path(f"results/evaluation/{dataset_name}/{self.timestamp}")
         
     def save_results(self, 
                     detailed_results: List[Dict[str, Any]], 

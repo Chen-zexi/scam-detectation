@@ -41,6 +41,7 @@ sys.path.append('src')
 from src.annotate import LLMAnnotationPipeline
 from src.evaluate import ScamDetectionEvaluator
 from src.synthesize import SynthesisGenerator, SynthesisPromptsManager
+from src.database import get_knowledge_base_service, PromptKnowledgeBaseService
 
 
 class InteractiveDatasetProcessor:
@@ -227,27 +228,145 @@ class InteractiveDatasetProcessor:
         print("\nSTEP 2a: Select Synthesis Type")
         print("-" * 40)
         
-        prompts_manager = SynthesisPromptsManager()
-        synthesis_types = prompts_manager.get_synthesis_types()
+        # Try to use database first
+        try:
+            kb_service = get_knowledge_base_service()
+            synthesis_types = kb_service.get_all_types()
+            
+            if synthesis_types:
+                print("Available synthesis types (from database):")
+                for i, syn_type in enumerate(synthesis_types, 1):
+                    # Get a sample entry to show description
+                    entries = kb_service.get_knowledge_by_type(syn_type, active_only=True)
+                    if entries:
+                        print(f"{i}. {syn_type.replace('_', ' ').title()}")
+                        print(f"   Categories available: {len(entries)}")
+                        print()
+                    
+                while True:
+                    try:
+                        choice = int(input(f"Select synthesis type (1-{len(synthesis_types)}): ").strip())
+                        if 1 <= choice <= len(synthesis_types):
+                            selected = synthesis_types[choice - 1]
+                            print(f"Selected: {selected.replace('_', ' ').title()}")
+                            return selected
+                        else:
+                            print(f"Please enter a number between 1 and {len(synthesis_types)}")
+                    except ValueError:
+                        print("Please enter a valid number")
+            else:
+                print("No synthesis types found in database, falling back to JSON config...")
+                raise Exception("Empty database")
+                
+        except Exception as e:
+            # Fallback to JSON-based selection
+            print(f"Note: Using JSON configuration (database unavailable)")
+            prompts_manager = SynthesisPromptsManager(use_database=False)
+            synthesis_types = prompts_manager.get_synthesis_types()
+            
+            print("Available synthesis types:")
+            for i, syn_type in enumerate(synthesis_types, 1):
+                type_info = prompts_manager.get_synthesis_type_info(syn_type)
+                print(f"{i}. {type_info.get('name', syn_type)}")
+                print(f"   {type_info.get('description', 'No description available')}")
+                print()
+            
+            while True:
+                try:
+                    choice = int(input(f"Select synthesis type (1-{len(synthesis_types)}): ").strip())
+                    if 1 <= choice <= len(synthesis_types):
+                        selected = synthesis_types[choice - 1]
+                        print(f"Selected: {prompts_manager.get_synthesis_type_info(selected).get('name', selected)}")
+                        return selected
+                    else:
+                        print(f"Please enter a number between 1 and {len(synthesis_types)}")
+                except ValueError:
+                    print("Please enter a valid number")
+    
+    def choose_synthesis_category(self, synthesis_type: str) -> str:
+        """Prompts the user to select a specific category from the knowledge base."""
+        print("\nSTEP 2b: Select Category")
+        print("-" * 40)
         
-        print("Available synthesis types:")
-        for i, syn_type in enumerate(synthesis_types, 1):
-            type_info = prompts_manager.get_synthesis_type_info(syn_type)
-            print(f"{i}. {type_info.get('name', syn_type)}")
-            print(f"   {type_info.get('description', 'No description available')}")
-            print()
-        
-        while True:
-            try:
-                choice = int(input(f"Select synthesis type (1-{len(synthesis_types)}): ").strip())
-                if 1 <= choice <= len(synthesis_types):
-                    selected = synthesis_types[choice - 1]
-                    print(f"Selected: {prompts_manager.get_synthesis_type_info(selected).get('name', selected)}")
-                    return selected
-                else:
-                    print(f"Please enter a number between 1 and {len(synthesis_types)}")
-            except ValueError:
-                print("Please enter a valid number")
+        # Try to use database first
+        try:
+            kb_service = get_knowledge_base_service()
+            categories = kb_service.get_knowledge_by_type(synthesis_type, active_only=True)
+            
+            if categories:
+                print(f"Available categories for {synthesis_type.replace('_', ' ').title()}:")
+                print()
+                
+                # Group by classification for better organization
+                by_classification = {}
+                for cat in categories:
+                    classification = cat.classification
+                    if classification not in by_classification:
+                        by_classification[classification] = []
+                    by_classification[classification].append(cat)
+                
+                # Display categories grouped by classification
+                all_categories = []
+                for classification in sorted(by_classification.keys()):
+                    print(f"\n{classification}:")
+                    for cat in by_classification[classification]:
+                        all_categories.append(cat)
+                        idx = len(all_categories)
+                        print(f"{idx}. {cat.name}")
+                        print(f"    {cat.description[:80]}..." if len(cat.description) > 80 else f"    {cat.description}")
+                
+                print(f"\n0. Generate ALL categories (mixed dataset)")
+                
+                while True:
+                    try:
+                        choice = int(input(f"\nSelect category (0-{len(all_categories)}): ").strip())
+                        if choice == 0:
+                            print("Selected: ALL categories (will generate a mix)")
+                            return "ALL"
+                        elif 1 <= choice <= len(all_categories):
+                            selected_cat = all_categories[choice - 1]
+                            print(f"Selected: {selected_cat.name}")
+                            return selected_cat.category
+                        else:
+                            print(f"Please enter a number between 0 and {len(all_categories)}")
+                    except ValueError:
+                        print("Please enter a valid number")
+            else:
+                print("No categories found in database for this type.")
+                return "ALL"
+                
+        except Exception as e:
+            # Fallback to JSON-based categories
+            print(f"Note: Using JSON configuration for categories (database unavailable)")
+            prompts_manager = SynthesisPromptsManager(use_database=False)
+            categories = prompts_manager.get_categories(synthesis_type)
+            
+            if categories:
+                print(f"Available categories:")
+                cat_list = list(categories.items())
+                for i, (cat_key, cat_info) in enumerate(cat_list, 1):
+                    print(f"{i}. {cat_info.get('name', cat_key)}")
+                    print(f"    Classification: {cat_info.get('classification', 'Unknown')}")
+                
+                print(f"\n0. Generate ALL categories (mixed dataset)")
+                
+                while True:
+                    try:
+                        choice = int(input(f"\nSelect category (0-{len(cat_list)}): ").strip())
+                        if choice == 0:
+                            print("Selected: ALL categories")
+                            return "ALL"
+                        elif 1 <= choice <= len(cat_list):
+                            selected_key, selected_info = cat_list[choice - 1]
+                            print(f"Selected: {selected_info.get('name', selected_key)}")
+                            return selected_key
+                        else:
+                            print(f"Please enter a number between 0 and {len(cat_list)}")
+                    except ValueError:
+                        print("Please enter a valid number")
+            else:
+                print("No categories available for this synthesis type.")
+                return "ALL"
     
     def choose_model(self, provider: str) -> str:
         """Prompts the user to select a model from the chosen provider."""
@@ -666,7 +785,8 @@ class InteractiveDatasetProcessor:
                         model=self.config['model'],
                         enable_thinking=self.config['enable_thinking'],
                         use_structure_model=self.config['use_structure_model'],
-                        save_to_mongodb=True  # Enable MongoDB saving by default
+                        save_to_mongodb=True,  # Enable MongoDB saving by default
+                        category=self.config.get('synthesis_category', 'ALL')  # Pass selected category
                     )
             
             # Run processing
@@ -850,8 +970,11 @@ class InteractiveDatasetProcessor:
         if self.config['task'] == "synthesis":
             self.config['synthesis_type'] = self.choose_synthesis_type()
             
+            # Let user select specific category or ALL
+            self.config['synthesis_category'] = self.choose_synthesis_category(self.config['synthesis_type'])
+            
             # Get sample size for synthesis
-            print("\nSTEP 2b: Configure Synthesis Generation")
+            print("\nSTEP 2c: Configure Synthesis Generation")
             print("-" * 40)
             while True:
                 try:

@@ -483,7 +483,7 @@ class ScamDetectionEvaluator:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         return f"{dataset_name}_evaluation_{self.provider}_{safe_model_name}_{timestamp}.json"
     
-    def _find_existing_checkpoint(self, checkpoint_dir: str = "checkpoints") -> Optional[Path]:
+    def _find_existing_checkpoint(self, checkpoint_dir: str = "checkpoints/evaluation") -> Optional[Path]:
         """Find the most recent checkpoint file for this configuration"""
         checkpoint_path = Path(checkpoint_dir)
         if not checkpoint_path.exists():
@@ -499,7 +499,7 @@ class ScamDetectionEvaluator:
             return max(checkpoint_files, key=lambda f: f.stat().st_mtime)
         return None
     
-    def load_checkpoint(self, checkpoint_dir: str = "checkpoints", 
+    def load_checkpoint(self, checkpoint_dir: str = "checkpoints/evaluation", 
                        resume_from_checkpoint: bool = True,
                        override_compatibility: bool = False) -> bool:
         """Load existing checkpoint if available and resume_from_checkpoint is True"""
@@ -544,7 +544,7 @@ class ScamDetectionEvaluator:
             print("Starting from beginning.")
             return False
     
-    def save_checkpoint(self, checkpoint_dir: str = "checkpoints"):
+    def save_checkpoint(self, checkpoint_dir: str = "checkpoints/evaluation"):
         """Save current processing state to checkpoint file"""
         checkpoint_path = Path(checkpoint_dir)
         checkpoint_path.mkdir(parents=True, exist_ok=True)
@@ -587,7 +587,7 @@ class ScamDetectionEvaluator:
     
     def process_full_dataset_with_checkpoints(self, 
                                             checkpoint_interval: int = 1000,
-                                            checkpoint_dir: str = "checkpoints",
+                                            checkpoint_dir: str = "checkpoints/evaluation",
                                             resume_from_checkpoint: bool = True,
                                             override_compatibility: bool = False) -> Dict[str, Any]:
         """
@@ -726,7 +726,7 @@ class ScamDetectionEvaluator:
     
     async def process_full_dataset_with_checkpoints_async_chunked(self, 
                                                                  checkpoint_interval: int = 1000,
-                                                                 checkpoint_dir: str = "checkpoints",
+                                                                 checkpoint_dir: str = "checkpoints/evaluation",
                                                                  resume_from_checkpoint: bool = True,
                                                                  concurrent_requests: int = 10,
                                                                  override_compatibility: bool = False) -> Dict[str, Any]:
@@ -899,7 +899,7 @@ class ScamDetectionEvaluator:
 
     async def process_full_dataset_with_checkpoints_async(self, 
                                                          checkpoint_interval: int = 1000,
-                                                         checkpoint_dir: str = "checkpoints",
+                                                         checkpoint_dir: str = "checkpoints/evaluation",
                                                          resume_from_checkpoint: bool = True,
                                                          concurrent_requests: int = 10,
                                                          override_compatibility: bool = False) -> Dict[str, Any]:
