@@ -8,23 +8,59 @@ providing a centralized way to access synthesis prompts and configurations.
 
 import json
 import os
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Callable, TypeVar
 from pathlib import Path
+import logging
+from functools import wraps
+
+from ..database.knowledge_base_service import get_knowledge_base_service
+from ..database.knowledge_base_models import ScamKnowledge
+from ..exceptions import ConfigurationError, UnknownSynthesisTypeError, InvalidCategoryError
+
+logger = logging.getLogger(__name__)
+
+T = TypeVar('T')
+
+
+def with_database_fallback(json_method_name: str):
+    """
+    Decorator that provides automatic database fallback to JSON methods.
+    
+    Args:
+        json_method_name: Name of the JSON-based fallback method
+    """
+    def decorator(func: Callable[..., T]) -> Callable[..., T]:
+        @wraps(func)
+        def wrapper(self, *args, **kwargs) -> T:
+            if self.kb_service and self.use_database:
+                try:
+                    result = func(self, *args, **kwargs)
+                    if result:  # Only return if we got a valid result
+                        return result
+                except Exception as e:
+                    logger.warning(f"Database error in {func.__name__}: {e}")
+            
+            # Fall back to JSON method
+            json_method = getattr(self, json_method_name)
+            return json_method(*args, **kwargs)
+        return wrapper
+    return decorator
 
 
 class SynthesisPromptsManager:
     """
-    Manages synthesis prompts and configurations loaded from JSON files.
-    Provides methods to access prompts, categories, and synthesis type information.
+    Manages synthesis prompts and configurations with support for both JSON files and MongoDB.
+    Falls back to JSON if database is unavailable.
     """
     
-    def __init__(self, config_path: str = None):
+    def __init__(self, config_path: str = None, use_database: bool = True):
         """
         Initialize the prompts manager.
         
         Args:
             config_path: Path to the synthesis configuration JSON file.
                         Defaults to config/synthesis_config.json
+            use_database: Whether to try using database first (default: True)
         """
         if config_path is None:
             # Get the project root directory (2 levels up from this file)
@@ -32,6 +68,25 @@ class SynthesisPromptsManager:
             config_path = project_root / "config" / "synthesis_config.json"
         
         self.config_path = Path(config_path)
+        self.use_database = use_database
+        self.kb_service = None
+        
+        # Try to initialize database service if enabled
+        if self.use_database:
+            try:
+                self.kb_service = get_knowledge_base_service()
+                # Test connection
+                if self.kb_service.get_all_types():
+                    logger.info("Using MongoDB knowledge base for prompts")
+                else:
+                    logger.warning("MongoDB knowledge base is empty, falling back to JSON")
+                    self.kb_service = None
+            except Exception as e:
+                logger.warning(f"Could not connect to MongoDB knowledge base: {e}")
+                logger.info("Falling back to JSON configuration")
+                self.kb_service = None
+        
+        # Load JSON config as fallback or primary source
         self.config = self._load_config()
         self.synthesis_types = self.config.get("synthesis_types", {})
     
@@ -43,20 +98,21 @@ class SynthesisPromptsManager:
             Dictionary containing the configuration
         """
         if not self.config_path.exists():
-            raise FileNotFoundError(f"Synthesis configuration not found at {self.config_path}")
+            raise ConfigurationError(f"Synthesis configuration not found at {self.config_path}")
         
         try:
             with open(self.config_path, 'r') as f:
                 config = json.load(f)
             return config
         except json.JSONDecodeError as e:
-            raise ValueError(f"Invalid JSON in synthesis configuration: {e}")
+            raise ConfigurationError(f"Invalid JSON in synthesis configuration: {e}") from e
     
     def reload_config(self):
         """Reload the configuration from file."""
         self.config = self._load_config()
         self.synthesis_types = self.config.get("synthesis_types", {})
     
+    @with_database_fallback('_get_synthesis_types_from_json')
     def get_synthesis_types(self) -> List[str]:
         """
         Get list of available synthesis types.
@@ -64,6 +120,10 @@ class SynthesisPromptsManager:
         Returns:
             List of synthesis type identifiers
         """
+        return self.kb_service.get_all_types() if self.kb_service else []
+    
+    def _get_synthesis_types_from_json(self) -> List[str]:
+        """Get synthesis types from JSON configuration."""
         return list(self.synthesis_types.keys())
     
     def get_synthesis_type_info(self, synthesis_type: str) -> Dict[str, Any]:
@@ -77,7 +137,7 @@ class SynthesisPromptsManager:
             Dictionary containing all synthesis type information
         """
         if synthesis_type not in self.synthesis_types:
-            raise ValueError(f"Unknown synthesis type: {synthesis_type}")
+            raise UnknownSynthesisTypeError(f"Unknown synthesis type: {synthesis_type}. Available types: {', '.join(self.synthesis_types.keys())}")
         
         return self.synthesis_types[synthesis_type]
     
@@ -137,6 +197,7 @@ class SynthesisPromptsManager:
         # Combine both schemas
         return {**llm_schema, **metadata_schema}
     
+    @with_database_fallback('_get_system_prompt_from_json')
     def get_system_prompt(self, synthesis_type: str) -> str:
         """
         Get system prompt for a synthesis type.
@@ -147,9 +208,20 @@ class SynthesisPromptsManager:
         Returns:
             System prompt string
         """
+        if not self.kb_service:
+            return ""
+            
+        knowledge_entries = self.kb_service.get_knowledge_by_type(synthesis_type)
+        if knowledge_entries and knowledge_entries[0].system_prompt:
+            return knowledge_entries[0].system_prompt
+        return ""
+    
+    def _get_system_prompt_from_json(self, synthesis_type: str) -> str:
+        """Get system prompt from JSON configuration."""
         type_info = self.get_synthesis_type_info(synthesis_type)
         return type_info.get("system_prompt", "")
     
+    @with_database_fallback('_get_categories_from_json')
     def get_categories(self, synthesis_type: str) -> Dict[str, Any]:
         """
         Get all categories for a synthesis type.
@@ -160,6 +232,25 @@ class SynthesisPromptsManager:
         Returns:
             Dictionary of category definitions
         """
+        if not self.kb_service:
+            return {}
+            
+        knowledge_entries = self.kb_service.get_knowledge_by_type(synthesis_type)
+        if not knowledge_entries:
+            return {}
+            
+        categories = {}
+        for entry in knowledge_entries:
+            categories[entry.category] = {
+                "name": entry.name,
+                "classification": entry.classification,
+                "prompt_template": entry.prompt,
+                "description": entry.description
+            }
+        return categories
+    
+    def _get_categories_from_json(self, synthesis_type: str) -> Dict[str, Any]:
+        """Get categories from JSON configuration."""
         type_info = self.get_synthesis_type_info(synthesis_type)
         return type_info.get("categories", {})
     
@@ -189,10 +280,11 @@ class SynthesisPromptsManager:
         """
         categories = self.get_categories(synthesis_type)
         if category not in categories:
-            raise ValueError(f"Unknown category '{category}' for synthesis type '{synthesis_type}'")
+            raise InvalidCategoryError(f"Unknown category '{category}' for synthesis type '{synthesis_type}'. Available categories: {', '.join(categories.keys())}")
         
         return categories[category]
     
+    @with_database_fallback('_get_prompt_for_category_from_json')
     def get_prompt_for_category(self, synthesis_type: str, category: str) -> str:
         """
         Get the prompt template for a specific category.
@@ -204,6 +296,15 @@ class SynthesisPromptsManager:
         Returns:
             Prompt template string
         """
+        if not self.kb_service:
+            return ""
+            
+        knowledge_id = f"{synthesis_type}.{category}"
+        knowledge = self.kb_service.get_knowledge(knowledge_id)
+        return knowledge.prompt if knowledge else ""
+    
+    def _get_prompt_for_category_from_json(self, synthesis_type: str, category: str) -> str:
+        """Get prompt from JSON configuration."""
         category_info = self.get_category_info(synthesis_type, category)
         return category_info.get("prompt_template", "")
     
@@ -232,9 +333,10 @@ class SynthesisPromptsManager:
         Returns:
             Complete prompt string
         """
+        # Get components
         system_prompt = self.get_system_prompt(synthesis_type)
-        category_prompt = self.get_prompt_for_category(synthesis_type, category)
         category_info = self.get_category_info(synthesis_type, category)
+        category_prompt = self.get_prompt_for_category(synthesis_type, category)
         
         # Build complete prompt
         prompt_parts = [

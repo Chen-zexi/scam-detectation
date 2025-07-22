@@ -73,11 +73,11 @@ class ScamDataService:
             
             # Create indexes for better performance
             indexes = [
-                IndexModel([("id", ASCENDING)], unique=True),
                 IndexModel([("synthesis_type", ASCENDING)]),
                 IndexModel([("classification", ASCENDING)]),
                 IndexModel([("category", ASCENDING)]),
                 IndexModel([("generation_timestamp", ASCENDING)]),
+                IndexModel([("knowledge_id", ASCENDING)]),  # Link to knowledge base
                 # Text index for content search (adjust field names as needed)
                 IndexModel([("transcript", TEXT), ("content", TEXT), ("message", TEXT)])
             ]
@@ -99,7 +99,8 @@ class ScamDataService:
     def store_synthesis_results(self, 
                                synthesis_type: str, 
                                results: List[Dict[str, Any]], 
-                               batch_size: int = 100) -> Dict[str, Any]:
+                               batch_size: int = 100,
+                               knowledge_id: Optional[str] = None) -> Dict[str, Any]:
         """
         Store synthesis results in MongoDB.
         
@@ -127,7 +128,12 @@ class ScamDataService:
         # Prepare documents for insertion
         documents = []
         for result in results:
-            doc = self._prepare_document(result, synthesis_type)
+            # Extract knowledge_id from result if not provided globally
+            result_knowledge_id = knowledge_id
+            if not result_knowledge_id and 'category' in result:
+                result_knowledge_id = f"{synthesis_type}.{result['category']}"
+            
+            doc = self._prepare_document(result, synthesis_type, result_knowledge_id)
             if doc:
                 documents.append(doc)
         
@@ -167,7 +173,7 @@ class ScamDataService:
             'errors': errors
         }
     
-    def _prepare_document(self, result: Dict[str, Any], synthesis_type: str) -> Optional[Dict[str, Any]]:
+    def _prepare_document(self, result: Dict[str, Any], synthesis_type: str, knowledge_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """
         Prepare a result dictionary for MongoDB insertion.
         
@@ -189,6 +195,13 @@ class ScamDataService:
             doc['synthesis_type'] = synthesis_type
             doc['storage_timestamp'] = datetime.utcnow()
             
+            # Add knowledge base link if provided
+            if knowledge_id:
+                doc['knowledge_id'] = knowledge_id
+            elif 'category' in doc:
+                # Auto-generate knowledge_id from type and category
+                doc['knowledge_id'] = f"{synthesis_type}.{doc['category']}"
+            
             # Ensure generation_timestamp exists
             if 'generation_timestamp' not in doc:
                 doc['generation_timestamp'] = doc.get('timestamp', datetime.utcnow().isoformat())
@@ -203,9 +216,9 @@ class ScamDataService:
                         # Keep as string if parsing fails
                         pass
             
-            # Ensure we have an ID field
-            if 'id' not in doc and '_id' not in doc:
-                doc['id'] = hash(str(doc)) % (10**9)  # Generate a simple numeric ID
+            # Remove 'id' field to avoid conflicts - MongoDB will use _id
+            if 'id' in doc:
+                del doc['id']
             
             return doc
             
@@ -238,6 +251,7 @@ class ScamDataService:
                       synthesis_type: str = None, 
                       classification: str = None,
                       category: str = None,
+                      knowledge_id: str = None,
                       limit: int = 100,
                       skip: int = 0) -> List[Dict[str, Any]]:
         """
@@ -266,6 +280,8 @@ class ScamDataService:
                     query['classification'] = classification
                 if category:
                     query['category'] = category
+                if knowledge_id:
+                    query['knowledge_id'] = knowledge_id
                 
                 cursor = collection.find(query).skip(skip).limit(limit).sort('generation_timestamp', -1)
                 return list(cursor)
@@ -274,7 +290,7 @@ class ScamDataService:
                 # Search across all collections
                 all_results = []
                 for syn_type in self.COLLECTIONS.keys():
-                    results = self.get_scam_data(syn_type, classification, category, limit, skip)
+                    results = self.get_scam_data(syn_type, classification, category, knowledge_id, limit, skip)
                     all_results.extend(results)
                 
                 # Sort by generation timestamp and apply limit
