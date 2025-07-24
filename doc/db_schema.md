@@ -74,7 +74,7 @@ Stores generated phone conversation transcripts.
 
 ```javascript
 {
-  "id": 123456789,                              // Unique identifier
+  // MongoDB automatically generates '_id' for uniqueness
   "synthesis_type": "phone_transcript",         // Type of synthesis
   "category": "tech_support_scam",              // Category used
   "classification": "OBVIOUS_SCAM",             // Classification
@@ -91,7 +91,7 @@ Stores generated phone conversation transcripts.
   
   // Generation metadata
   "model_provider": "openai",
-  "model_name": "gpt-4",
+  "model_name": "gpt-4.1-mini",
   "generation_time_ms": 2500
 }
 ```
@@ -102,7 +102,6 @@ Stores generated phishing emails.
 
 ```javascript
 {
-  "id": 987654321,
   "synthesis_type": "phishing_email",
   "category": "account_verification",
   "classification": "PHISHING",
@@ -128,7 +127,6 @@ Stores generated SMS messages.
 
 ```javascript
 {
-  "id": 555666777,
   "synthesis_type": "sms_scam",
   "category": "package_delivery",
   "classification": "SCAM",
@@ -148,13 +146,14 @@ Stores generated SMS messages.
 ```
 
 #### Common Indexes for Synthetic Data Collections:
-- `id` (unique): Primary identifier
 - `synthesis_type`: Type filtering
 - `classification`: Classification filtering
 - `category`: Category filtering
 - `generation_timestamp`: Time-based queries
 - `knowledge_id`: Link to knowledge base
 - Text indexes on content fields for full-text search
+
+**Note**: The `id` field is no longer indexed. MongoDB's automatic `_id` field provides uniqueness. Sequential IDs are kept in CSV exports for readability but removed before database insertion.
 
 ## Relationships
 
@@ -425,6 +424,10 @@ for item in recent:
 3. **Prompts**: Keep prompts focused and specific to the category
 4. **Classification**: Use standard classification values for consistency
 5. **Metadata**: Use the metadata field for experimental or temporary data
+6. **ID Management**: 
+   - CSV files maintain sequential IDs (0, 1, 2...) for readability
+   - MongoDB uses its automatic `_id` field for uniqueness
+   - The `id` field is removed before database insertion to prevent conflicts
 
 ## Common Operations
 
@@ -490,6 +493,23 @@ python migrate_to_knowledge_base.py
 # Check collection
 mongo scam_detection --eval "db.scam_knowledge_base.count()"
 ```
+
+### Duplicate ID Errors
+If you encounter "duplicate key error" when saving synthetic data:
+
+```bash
+# This occurs if old unique indexes exist from previous versions
+# Drop the old unique index on 'id' field for each collection:
+
+docker exec scam-detection-mongodb mongosh scam_detection --eval "db.phone_scams.dropIndex('id_1')"
+docker exec scam-detection-mongodb mongosh scam_detection --eval "db.email_scams.dropIndex('id_1')"
+docker exec scam-detection-mongodb mongosh scam_detection --eval "db.sms_scams.dropIndex('id_1')"
+
+# Verify indexes are removed:
+docker exec scam-detection-mongodb mongosh scam_detection --eval "db.phone_scams.getIndexes()"
+```
+
+**Prevention**: The system now removes the `id` field before MongoDB insertion, relying on MongoDB's `_id` for uniqueness.
 
 ### Fallback to JSON
 If MongoDB is unavailable, the system automatically falls back to JSON:

@@ -41,6 +41,25 @@ GEMINI_API_KEY=your-gemini-api-key
 HOST_IP=ip-of-your-local-machine
 ```
 
+### 4. MongoDB Setup (Optional)
+
+For enhanced synthesis features with knowledge base support:
+
+```bash
+# Start MongoDB using Docker (recommended)
+docker-compose up -d
+
+# Or install MongoDB locally
+# macOS: brew install mongodb-community
+# Ubuntu: sudo apt-get install mongodb
+# Windows: Download from mongodb.com
+
+# Add MongoDB configuration to .env
+MONGODB_HOST=localhost
+MONGODB_PORT=27017
+MONGODB_DATABASE=scam_detection
+```
+
 ## Data Setup
 
 For the **Evaluation** and **Annotation** tasks, you must provide your own dataset.
@@ -70,6 +89,7 @@ The primary way to use the framework is through the `main.py` interactive script
 
 To start, run:
 ```bash
+# Using the original interface
 uv run python main.py
 ```
 
@@ -99,14 +119,23 @@ The script will prompt you to select a task and configure it. Below is a detaile
 
 ---
 
-### Task 3: Transcript Generation
+### Task 3: Synthesis
 
--   **What it does**: Synthesizes a new dataset of realistic phone call transcripts covering a wide range of scam and legitimate scenarios. This is useful for creating novel training data when real-world data is scarce.
+-   **What it does**: Generates synthetic datasets of various scam types including phone call transcripts, phishing emails, and SMS messages. Each type covers a wide range of scam and legitimate scenarios. This is useful for creating novel training data when real-world data is scarce.
+-   **Available synthesis types**:
+    - **Phone Transcripts**: Realistic phone conversations with tech support scams, authority impersonation, financial scams, etc.
+    - **Phishing Emails**: Account verification, prize notifications, invoice scams, etc.
+    - **SMS Scams**: Banking alerts, package delivery, verification codes, etc.
 -   **How to run**:
     1.  Run `python main.py`.
-    2.  Choose option `3. Transcript Generation`.
-    3.  Specify the number of transcripts to generate and select the LLM provider and model.
--   **Output**: A CSV file containing the generated transcripts, their classification (`OBVIOUS_SCAM`, `SUBTLE_SCAM`, `LEGITIMATE`, etc.), and other metadata.
+    2.  Choose option `3. Synthesis` .
+    3.  Select the synthesis type (phone, email, or SMS).
+    4.  Choose a specific category or "ALL" for a mixed dataset.
+    5.  Specify the number of items to generate and select the LLM provider and model.
+-   **Output**: 
+    - CSV file containing the generated content with appropriate fields for each type
+    - Classifications (`OBVIOUS_SCAM`, `SUBTLE_SCAM`, `LEGITIMATE`, `PHISHING`, etc.)
+    - Storage to MongoDB for enhanced data management
 
 ---
 
@@ -137,37 +166,53 @@ results/
             └── annotation_summary.json         # Statistics about the annotation run.
 ```
 
-### Transcript Generation Output
+### Synthesis Output
 
 ```
 results/
-└── generation/
-    └── {timestamp}/
-        ├── detailed_results.csv      # The generated transcripts and their metadata.
-        ├── generation_summary.json   # Statistics about the generation process.
-        └── summary_report.txt        # A human-readable summary.
+└── synthesis/
+    └── {synthesis_type}/           # e.g., phone_transcript, phishing_email, sms_scam
+        └── {timestamp}/
+            ├── synthesis_results.csv    # The generated content and metadata
+            ├── synthesis_summary.json   # Statistics about the generation process
+            └── synthesis_report.txt     # A human-readable summary
 ```
+
+Note: If MongoDB is enabled, generated data is also stored in the database for easier querying and management.
 
 ## Codebase Structure
 
 ```
 .
-├── main.py                         # The main interactive entry point for all tasks.
+├── main.py                         # Interactive entry point
 └── src/
-    ├── evaluate/                   # Evaluation task.
-    │   └── evaluator.py
-    ├── annotate/                   # Annotation task.
-    │   └── annotation_pipeline.py
-    ├── synthesize/                 # Synthetic data generation task.
-    │   ├── transcript_generator.py
-    │   └── transcript_prompts.py
-    ├── llm_core/                   # A centralized module for handling all LLM interactions.
-    │   ├── api_provider.py            # Manages connections to different LLM services.
-    │   └── api_call.py                # Executes API requests.
-    └── utils/                      # Helper modules for common tasks.
-        ├── data_loader.py             # Loads and validates datasets.
-        ├── metrics_calculator.py      # Computes performance metrics.
-        └── results_saver.py           # Saves all outputs to the correct directory structure.
+    ├── evaluate/                   # Evaluation task
+    │   ├── evaluator.py              # Main evaluation class
+    │   ├── prompt_generator.py       # Dynamic prompt generation
+    │   └── pipeline.py               # CLI pipeline for batch evaluation
+    ├── annotate/                   # Annotation task
+    │   └── annotation_pipeline.py    # LLM-based annotation generation
+    ├── synthesize/                 # Synthetic data generation for all types
+    │   ├── synthesis_generator.py    # Main synthesis class (handles all types)
+    │   ├── synthesis_prompts.py      # Prompt management with DB support
+    │   └── schema_builder.py         # Dynamic schema generation
+    ├── llm_core/                   # Centralized LLM interactions
+    │   ├── api_provider.py           # Unified interface for all LLM providers
+    │   └── api_call.py              # Async/sync API call utilities
+    ├── database/                   # MongoDB integration
+    │   ├── mongodb_config.py         # Database configuration
+    │   ├── knowledge_base_service.py # Knowledge base operations
+    │   └── scam_data_service.py     # Synthetic data storage
+    ├── cli/                        # CLI components
+    │   ├── dataset_manager.py        # Dataset discovery and selection
+    │   ├── model_selector.py         # Model selection interface
+    │   ├── checkpoint_manager.py     # Checkpoint handling
+    │   └── config_manager.py         # Configuration management
+    ├── utils/                      # Helper modules
+    │   ├── data_loader.py            # Dataset loading and validation
+    │   ├── metrics_calculator.py     # Performance metrics
+    │   └── results_saver.py          # Structured result persistence
+    └── exceptions.py               # Custom exception hierarchy
 ```
 
 ## Advanced Usage
@@ -195,4 +240,33 @@ async def run_evaluation():
 
 if __name__ == "__main__":
     asyncio.run(run_evaluation())
+```
+
+**Example: Synthesis with MongoDB**
+```python
+from src.synthesize import SynthesisGenerator
+import asyncio
+
+async def generate_synthetic_data():
+    # Initialize generator for phishing emails
+    generator = SynthesisGenerator(
+        synthesis_type="phishing_email",
+        sample_size=50,
+        category="ALL",  # Generate mixed categories
+        provider="openai",
+        model="gpt-4.1-mini",
+        save_to_mongodb=True  # Enable MongoDB storage
+    )
+    
+    # Generate with checkpointing support
+    results = await generator.process_full_generation_with_checkpoints(
+        checkpoint_interval=10,
+        concurrent_requests=5
+    )
+    
+    print(f"Generated {results['success_count']} items")
+    print(f"Results saved to: {results['detailed_results']}")
+
+if __name__ == "__main__":
+    asyncio.run(generate_synthetic_data())
 ```
