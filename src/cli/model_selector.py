@@ -16,13 +16,13 @@ class ModelSelector:
     def __init__(self):
         """Initialize model selector with environment configuration."""
         self.openai_models = [
+            "gpt-4.1-mini",
+            "gpt-4.1-nano", 
+            "gpt-4.1",
             "gpt-4o",
-            "gpt-4o-mini", 
-            "gpt-4",
-            "gpt-4-turbo",
-            "gpt-3.5-turbo",
-            "o1-preview",
-            "o1-mini"
+            "gpt-4o-mini",
+            "o3",
+            "o4-mini"
         ]
         self.host_ip = os.getenv("HOST_IP", "127.0.0.1")
         

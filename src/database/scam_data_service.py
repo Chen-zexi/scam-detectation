@@ -108,6 +108,7 @@ class ScamDataService:
             synthesis_type: Type of synthesis (e.g., 'phone_transcript', 'phishing_email')
             results: List of synthesis result dictionaries
             batch_size: Number of documents to insert per batch
+            knowledge_id: Optional knowledge base ID to link
             
         Returns:
             Dictionary with storage statistics
@@ -180,6 +181,7 @@ class ScamDataService:
         Args:
             result: Result dictionary from synthesis
             synthesis_type: Type of synthesis
+            knowledge_id: Optional knowledge base ID
             
         Returns:
             Document ready for insertion, or None if invalid
@@ -247,59 +249,205 @@ class ScamDataService:
         else:
             return obj
     
-    def get_scam_data(self, 
-                      synthesis_type: str = None, 
-                      classification: str = None,
-                      category: str = None,
-                      knowledge_id: str = None,
-                      limit: int = 100,
-                      skip: int = 0) -> List[Dict[str, Any]]:
+    def _build_query_filter(self, filters: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Retrieve scam data from MongoDB.
+        Build MongoDB query filter from simplified parameters.
+        
+        Args:
+            filters: Dictionary of filter parameters
+            
+        Returns:
+            MongoDB query filter
+        """
+        query = {}
+        
+        for key, value in filters.items():
+            if value is None:
+                continue
+            
+            # Handle date ranges
+            if key.endswith('_from') and isinstance(value, (str, datetime)):
+                field = key[:-5]  # Remove '_from'
+                if isinstance(value, str):
+                    value = datetime.fromisoformat(value.replace('Z', '+00:00'))
+                query.setdefault(field, {})['$gte'] = value
+            elif key.endswith('_to') and isinstance(value, (str, datetime)):
+                field = key[:-3]  # Remove '_to'
+                if isinstance(value, str):
+                    value = datetime.fromisoformat(value.replace('Z', '+00:00'))
+                query.setdefault(field, {})['$lte'] = value
+            # Default equality
+            else:
+                query[key] = value
+        
+        return query
+    
+    def get_scam_data(self, 
+                     synthesis_type: str = None,
+                     classification: str = None,
+                     category: str = None,
+                     knowledge_id: str = None,
+                     limit: int = 100,
+                     skip: int = 0,
+                     sort_by: str = "generation_timestamp",
+                     sort_order: int = -1,
+                     date_from: str = None,
+                     date_to: str = None) -> Dict[str, Any]:
+        """
+        Retrieve scam data from MongoDB with filtering and pagination.
         
         Args:
             synthesis_type: Filter by synthesis type
             classification: Filter by classification
             category: Filter by category
+            knowledge_id: Filter by knowledge ID
             limit: Maximum number of documents to return
             skip: Number of documents to skip
+            sort_by: Field to sort by
+            sort_order: Sort order (-1 for descending, 1 for ascending)
+            date_from: Filter by generation timestamp (ISO format)
+            date_to: Filter by generation timestamp (ISO format)
             
         Returns:
-            List of documents
+            Dictionary with results and metadata
         """
         try:
-            # If synthesis_type is specified, use that collection
+            # Determine collection(s) to query
             if synthesis_type:
-                collection_name = self._get_collection_name(synthesis_type)
-                collection = self.connection.get_collection(collection_name)
-                if collection is None:
-                    return []
-                
-                query = {'synthesis_type': synthesis_type}
-                if classification:
-                    query['classification'] = classification
-                if category:
-                    query['category'] = category
-                if knowledge_id:
-                    query['knowledge_id'] = knowledge_id
-                
-                cursor = collection.find(query).skip(skip).limit(limit).sort('generation_timestamp', -1)
-                return list(cursor)
-            
+                collection_names = [self._get_collection_name(synthesis_type)]
             else:
-                # Search across all collections
-                all_results = []
-                for syn_type in self.COLLECTIONS.keys():
-                    results = self.get_scam_data(syn_type, classification, category, knowledge_id, limit, skip)
-                    all_results.extend(results)
+                collection_names = list(self.COLLECTIONS.values())
+            
+            all_results = []
+            total_count = 0
+            
+            # Build query filter
+            filters = {
+                'synthesis_type': synthesis_type,
+                'classification': classification,
+                'category': category,
+                'knowledge_id': knowledge_id,
+                'generation_timestamp_from': date_from,
+                'generation_timestamp_to': date_to
+            }
+            query = self._build_query_filter(filters)
+            
+            # Query each collection
+            for collection_name in collection_names:
+                collection = self.connection.get_collection(collection_name)
+                if not collection:
+                    continue
                 
-                # Sort by generation timestamp and apply limit
-                all_results.sort(key=lambda x: x.get('generation_timestamp', datetime.min), reverse=True)
-                return all_results[:limit]
+                # Get total count for this collection
+                collection_count = collection.count_documents(query)
+                total_count += collection_count
                 
+                # Skip if we've already collected enough from previous collections
+                if skip >= len(all_results) + collection_count:
+                    skip -= collection_count
+                    continue
+                
+                # Calculate collection-specific skip and limit
+                coll_skip = max(0, skip - len(all_results))
+                coll_limit = min(limit - len(all_results), collection_count - coll_skip)
+                
+                if coll_limit <= 0:
+                    continue
+                
+                # Query with pagination
+                cursor = collection.find(query).sort(sort_by, sort_order).skip(coll_skip).limit(coll_limit)
+                
+                for doc in cursor:
+                    # Convert ObjectId to string
+                    if '_id' in doc:
+                        doc['_id'] = str(doc['_id'])
+                    all_results.append(doc)
+                
+                if len(all_results) >= limit:
+                    break
+            
+            return {
+                'success': True,
+                'results': all_results,
+                'total_count': total_count,
+                'page_size': limit,
+                'page_offset': skip,
+                'query': query
+            }
+            
         except Exception as e:
             logger.error(f"Error retrieving scam data: {e}")
-            return []
+            return {
+                'success': False,
+                'error': str(e),
+                'results': []
+            }
+    
+    def get_stats_by_type(self, synthesis_type: str = None) -> Dict[str, Any]:
+        """
+        Get statistics for all collections or a specific synthesis type.
+        
+        Args:
+            synthesis_type: Optional synthesis type to filter
+            
+        Returns:
+            Dictionary with statistics
+        """
+        try:
+            if synthesis_type:
+                collection_names = [self._get_collection_name(synthesis_type)]
+            else:
+                collection_names = list(self.COLLECTIONS.values())
+            
+            stats = {
+                'total_documents': 0,
+                'by_collection': {},
+                'by_classification': {},
+                'by_category': {}
+            }
+            
+            for collection_name in collection_names:
+                collection = self.connection.get_collection(collection_name)
+                if not collection:
+                    continue
+                
+                # Basic collection stats
+                count = collection.count_documents({})
+                stats['by_collection'][collection_name] = {
+                    'count': count,
+                    'indexes': [index['name'] for index in collection.list_indexes()]
+                }
+                stats['total_documents'] += count
+                
+                # Classification distribution
+                pipeline = [
+                    {'$group': {'_id': '$classification', 'count': {'$sum': 1}}},
+                    {'$sort': {'count': -1}}
+                ]
+                for item in collection.aggregate(pipeline):
+                    classification = item['_id'] or 'Unknown'
+                    stats['by_classification'][classification] = stats['by_classification'].get(classification, 0) + item['count']
+                
+                # Category distribution
+                pipeline = [
+                    {'$group': {'_id': '$category', 'count': {'$sum': 1}}},
+                    {'$sort': {'count': -1}}
+                ]
+                for item in collection.aggregate(pipeline):
+                    category = item['_id'] or 'Unknown'
+                    stats['by_category'][category] = stats['by_category'].get(category, 0) + item['count']
+            
+            return {
+                'success': True,
+                'stats': stats
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting statistics: {e}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
     
     def get_collection_stats(self, synthesis_type: str = None) -> Dict[str, Any]:
         """
@@ -368,4 +516,4 @@ def get_scam_data_service() -> ScamDataService:
     global _global_service
     if _global_service is None:
         _global_service = ScamDataService()
-    return _global_service 
+    return _global_service
