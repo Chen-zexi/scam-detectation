@@ -109,7 +109,7 @@ class LLMAnnotationPipeline:
                  balanced_sample: bool = False,
                  random_state: int = 42,
                  content_columns: Optional[List[str]] = None,
-                 output_dir: str = "annotations",
+                 output_dir: str = "results/annotation",
                  enable_thinking: bool = False,
                  use_structure_model: bool = False):
         """
@@ -244,13 +244,10 @@ class LLMAnnotationPipeline:
                 annotation = self._create_annotation_record(i+1, row, response)
                 annotations.append(annotation)
                 
-                actual_class = 'Scam' if row['label'] == 1 else 'Legitimate'
-                usability_status = 'Usable' if response.usability else 'Not usable'
-                tqdm.write(f"  Record {i+1}: Class={actual_class}, Confidence={response.confidence}, "
-                          f"Usability={usability_status}, Indicators={len(response.key_indicators)}")
+                # Remove per-record output to avoid cluttering
                 
             except Exception as e:
-                tqdm.write(f"  Error annotating record {i+1}: {e}")
+                # Log error internally without output
                 annotation = self._create_error_annotation_record(i+1, row, str(e))
                 annotations.append(annotation)
         
@@ -308,15 +305,12 @@ class LLMAnnotationPipeline:
                     # Create comprehensive annotation record
                     annotation = self._create_annotation_record(i+1, row, response)
                     
-                    actual_class = 'Scam' if row['label'] == 1 else 'Legitimate'
-                    usability_status = 'Usable' if response.usability else 'Not usable'
-                    tqdm.write(f"Record {i+1} - Class: {actual_class}, Confidence: {response.confidence}, "
-                              f"Usability: {usability_status}, Indicators: {len(response.key_indicators)}")
+                    # Remove per-record output to avoid breaking progress bar
                     
                     return annotation
                     
                 except Exception as e:
-                    tqdm.write(f"  Error annotating record {i+1}: {e}")
+                    # Log error internally without breaking progress bar
                     annotation = self._create_error_annotation_record(i+1, row, str(e))
                     return annotation
                 finally:
@@ -412,7 +406,7 @@ class LLMAnnotationPipeline:
         if not self.annotations:
             raise ValueError("No annotations available. Run annotation first.")
         
-        # Create directory structure: result/annotated/{dataset_name}/{timestamp}/
+        # Create directory structure: results/annotation/{dataset_name}/{timestamp}/
         timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
         results_dir = Path(self.output_dir) / self.data_loader.dataset_name / timestamp
         results_dir.mkdir(parents=True, exist_ok=True)
@@ -590,7 +584,7 @@ class LLMAnnotationPipeline:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         return f"{dataset_name}_annotation_{self.provider}_{safe_model_name}_{timestamp}.json"
     
-    def _find_existing_checkpoint(self, checkpoint_dir: str = "checkpoints") -> Optional[Path]:
+    def _find_existing_checkpoint(self, checkpoint_dir: str = "checkpoints/annotation") -> Optional[Path]:
         """Find the most recent checkpoint file for this configuration"""
         checkpoint_path = Path(checkpoint_dir)
         if not checkpoint_path.exists():
@@ -606,7 +600,7 @@ class LLMAnnotationPipeline:
             return max(checkpoint_files, key=lambda f: f.stat().st_mtime)
         return None
     
-    def load_checkpoint(self, checkpoint_dir: str = "checkpoints", 
+    def load_checkpoint(self, checkpoint_dir: str = "checkpoints/annotation", 
                        resume_from_checkpoint: bool = True,
                        override_compatibility: bool = False) -> bool:
         """Load existing checkpoint if available and resume_from_checkpoint is True"""
@@ -651,7 +645,7 @@ class LLMAnnotationPipeline:
             print("Starting from beginning.")
             return False
     
-    def save_checkpoint(self, checkpoint_dir: str = "checkpoints"):
+    def save_checkpoint(self, checkpoint_dir: str = "checkpoints/annotation"):
         """Save current processing state to checkpoint file"""
         checkpoint_path = Path(checkpoint_dir)
         checkpoint_path.mkdir(parents=True, exist_ok=True)
@@ -694,7 +688,7 @@ class LLMAnnotationPipeline:
     
     def process_full_dataset_with_checkpoints(self, 
                                             checkpoint_interval: int = 1000,
-                                            checkpoint_dir: str = "checkpoints",
+                                            checkpoint_dir: str = "checkpoints/annotation",
                                             resume_from_checkpoint: bool = True,
                                             override_compatibility: bool = False) -> Dict[str, Any]:
         """
@@ -823,7 +817,7 @@ class LLMAnnotationPipeline:
     
     async def process_full_dataset_with_checkpoints_async_chunked(self, 
                                                                  checkpoint_interval: int = 1000,
-                                                                 checkpoint_dir: str = "checkpoints",
+                                                                 checkpoint_dir: str = "checkpoints/annotation",
                                                                  resume_from_checkpoint: bool = True,
                                                                  concurrent_requests: int = 10,
                                                                  override_compatibility: bool = False) -> Dict[str, Any]:
@@ -993,7 +987,7 @@ class LLMAnnotationPipeline:
 
     async def process_full_dataset_with_checkpoints_async(self, 
                                                          checkpoint_interval: int = 1000,
-                                                         checkpoint_dir: str = "checkpoints",
+                                                         checkpoint_dir: str = "checkpoints/annotation",
                                                          resume_from_checkpoint: bool = True,
                                                          concurrent_requests: int = 10,
                                                          override_compatibility: bool = False) -> Dict[str, Any]:

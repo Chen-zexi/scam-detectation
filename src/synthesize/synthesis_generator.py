@@ -8,9 +8,10 @@ scam detection training data based on JSON configuration files.
 
 import asyncio
 import json
+import logging
 import random
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Type
+from typing import List, Dict, Any, Optional, Type, Tuple
 from datetime import datetime
 from enum import Enum
 import pandas as pd
@@ -21,6 +22,10 @@ from src.llm_core.api_provider import LLM
 from src.llm_core.api_call import make_api_call_async
 from src.synthesize.schema_builder import SchemaBuilder
 from src.synthesize.synthesis_prompts import SynthesisPromptsManager
+from src.database import get_scam_data_service
+from src.exceptions import UnknownSynthesisTypeError, ModelInitializationError, APICallError
+
+logger = logging.getLogger(__name__)
 
 
 class SynthesisGenerator:
@@ -37,7 +42,9 @@ class SynthesisGenerator:
                  provider: str = "openai",
                  model: str = "gpt-4o-mini",
                  enable_thinking: bool = False,
-                 use_structure_model: bool = False):
+                 use_structure_model: bool = False,
+                 save_to_mongodb: bool = True,
+                 category: str = "ALL"):
         """
         Initialize the synthesis generator.
         
@@ -50,6 +57,8 @@ class SynthesisGenerator:
             model: Model name
             enable_thinking: Whether to enable thinking tokens
             use_structure_model: Whether to use structured output parsing
+            save_to_mongodb: Whether to save results to MongoDB database
+            category: Specific category to generate or 'ALL' for mixed dataset
         """
         self.synthesis_type = synthesis_type
         self.sample_size = sample_size
@@ -58,6 +67,8 @@ class SynthesisGenerator:
         self.model = model
         self.enable_thinking = enable_thinking
         self.use_structure_model = use_structure_model
+        self.save_to_mongodb = save_to_mongodb
+        self.category = category
         
         # Initialize components
         self.prompts_manager = SynthesisPromptsManager(config_path)
@@ -65,7 +76,7 @@ class SynthesisGenerator:
         
         # Validate synthesis type
         if synthesis_type not in self.prompts_manager.get_synthesis_types():
-            raise ValueError(f"Unknown synthesis type: {synthesis_type}")
+            raise UnknownSynthesisTypeError(f"Unknown synthesis type: {synthesis_type}. Available types: {', '.join(self.prompts_manager.get_synthesis_types())}")
         
         # Build response schema - use only LLM fields for the model
         llm_schema_def = self.prompts_manager.get_llm_response_schema(synthesis_type)
@@ -88,15 +99,15 @@ class SynthesisGenerator:
         """Initialize the LLM models."""
         try:
             self.llm = LLM(provider=self.provider, model=self.model).get_llm()
-            print(f"Model initialized: {self.provider} - {self.model}")
+            logger.info(f"Model initialized: {self.provider} - {self.model}")
             
             if self.use_structure_model:
                 llm_provider = LLM()
                 self.structure_model = llm_provider.get_structure_model()
-                print("Structure model initialized for parsing")
+                logger.info("Structure model initialized for parsing")
                 
         except Exception as e:
-            raise Exception(f"Error initializing models: {e}")
+            raise ModelInitializationError(f"Error initializing models: {e}") from e
     
     def get_system_prompt(self) -> str:
         """Get the system prompt for the current synthesis type."""
@@ -252,20 +263,41 @@ Ensure all fields are included in your response."""
     
     def save_results(self, results: List[Dict[str, Any]]) -> Dict[str, str]:
         """
-        Save generation results to files.
+        Save generation results to files and optionally to MongoDB.
         
         Args:
             results: List of generation results
             
         Returns:
-            Dictionary with file paths
+            Dictionary with file paths and save statistics
         """
         # Create output directory
+        results_dir = self._create_results_directory()
+        
+        # Process results
+        successful_results, error_results = self._separate_results(results)
+        
+        # Save to files
+        save_paths = self._save_to_files(results_dir, successful_results, error_results, results)
+        
+        # Save to MongoDB if enabled
+        if self.save_to_mongodb and successful_results:
+            mongodb_result = self._save_to_mongodb(successful_results)
+            save_paths['mongodb_result'] = mongodb_result
+        elif self.save_to_mongodb and not successful_results:
+            logger.warning("No successful results to save to MongoDB")
+        
+        return save_paths
+    
+    def _create_results_directory(self) -> Path:
+        """Create timestamped results directory."""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         results_dir = self.output_dir / self.synthesis_type / timestamp
         results_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Separate successful and error results
+        return results_dir
+    
+    def _separate_results(self, results: List[Dict[str, Any]]) -> Tuple[List[Dict], List[Dict]]:
+        """Separate successful and error results."""
         successful_results = []
         error_results = []
         
@@ -281,78 +313,134 @@ Ensure all fields are included in your response."""
                 record = self._create_error_record(
                     result['index'],
                     result['category'],
-                    result['error']
+                    result.get('error', 'Unknown error')
                 )
                 error_results.append(record)
         
-        # Save detailed results
-        all_results = successful_results + error_results
-        detailed_df = pd.DataFrame(all_results)
-        detailed_path = results_dir / "synthesis_results.csv"
-        detailed_df.to_csv(detailed_path, index=False)
+        return successful_results, error_results
+    
+    def _save_to_files(self, results_dir: Path, successful_results: List[Dict], 
+                       error_results: List[Dict], all_results: List[Dict]) -> Dict[str, Any]:
+        """Save results to CSV and JSON files."""
+        save_paths = {}
         
-        # Save summary statistics
-        type_info = self.prompts_manager.get_synthesis_type_info(self.synthesis_type)
-        summary_stats = {
-            'synthesis_type': self.synthesis_type,
-            'synthesis_name': type_info.get('name', self.synthesis_type),
-            'total_generated': len(results),
-            'successful': len(successful_results),
-            'errors': len(error_results),
-            'success_rate': len(successful_results) / len(results) if results else 0,
-            'category_distribution': detailed_df['category'].value_counts().to_dict(),
-            'provider': self.provider,
-            'model': self.model,
-            'generation_timestamp': timestamp,
-            'config': {
-                'enable_thinking': self.enable_thinking,
-                'use_structure_model': self.use_structure_model,
-                'concurrent_requests': 5  # Default value
-            }
-        }
+        # Save detailed results CSV
+        combined_results = successful_results + error_results
+        if combined_results:
+            detailed_df = pd.DataFrame(combined_results)
+            detailed_path = results_dir / "synthesis_results.csv"
+            detailed_df.to_csv(detailed_path, index=False)
+            save_paths['detailed_results'] = str(detailed_path)
         
-        # Add classification distribution if available
-        if 'classification' in detailed_df.columns:
-            summary_stats['classification_distribution'] = detailed_df['classification'].value_counts().to_dict()
+        # Generate and save summary
+        summary_stats = self._generate_summary_stats(
+            all_results, successful_results, error_results, 
+            detailed_df if combined_results else None
+        )
         
-        # Save summary
         summary_path = results_dir / "synthesis_summary.json"
         with open(summary_path, 'w') as f:
             json.dump(summary_stats, f, indent=2)
+        save_paths['summary_json'] = str(summary_path)
         
         # Save human-readable report
         report_path = results_dir / "synthesis_report.txt"
+        self._write_report(report_path, summary_stats, successful_results, error_results)
+        save_paths['summary_report'] = str(report_path)
+        
+        # Add counts to return data
+        save_paths.update({
+            'success_count': len(successful_results),
+            'error_count': len(error_results),
+            'total_count': len(all_results)
+        })
+        
+        return save_paths
+    
+    def _generate_summary_stats(self, all_results: List[Dict], successful_results: List[Dict], 
+                               error_results: List[Dict], detailed_df: pd.DataFrame = None) -> Dict[str, Any]:
+        """Generate summary statistics for the results."""
+        type_info = self.prompts_manager.get_synthesis_type_info(self.synthesis_type)
+        
+        stats = {
+            'synthesis_type': self.synthesis_type,
+            'synthesis_name': type_info.get('name', self.synthesis_type),
+            'total_generated': len(all_results),
+            'successful': len(successful_results),
+            'errors': len(error_results),
+            'success_rate': len(successful_results) / len(all_results) if all_results else 0,
+            'provider': self.provider,
+            'model': self.model,
+            'generation_timestamp': datetime.now().strftime("%Y%m%d_%H%M%S"),
+            'config': {
+                'enable_thinking': self.enable_thinking,
+                'use_structure_model': self.use_structure_model,
+                'category': self.category
+            }
+        }
+        
+        # Add distribution statistics if we have a dataframe
+        if detailed_df is not None and not detailed_df.empty:
+            if 'category' in detailed_df.columns:
+                stats['category_distribution'] = detailed_df['category'].value_counts().to_dict()
+            if 'classification' in detailed_df.columns:
+                stats['classification_distribution'] = detailed_df['classification'].value_counts().to_dict()
+        
+        return stats
+    
+    def _write_report(self, report_path: Path, summary_stats: Dict[str, Any], 
+                      successful_results: List[Dict], error_results: List[Dict]):
+        """Write a human-readable report of the generation results."""
         with open(report_path, 'w') as f:
             f.write(f"SYNTHESIS GENERATION REPORT\n")
             f.write("=" * 50 + "\n\n")
-            f.write(f"Synthesis Type: {type_info.get('name', self.synthesis_type)}\n")
-            f.write(f"Total generated: {len(results)}\n")
-            f.write(f"Successful: {len(successful_results)}\n")
-            f.write(f"Errors: {len(error_results)}\n")
+            f.write(f"Synthesis Type: {summary_stats['synthesis_name']}\n")
+            f.write(f"Total generated: {summary_stats['total_generated']}\n")
+            f.write(f"Successful: {summary_stats['successful']}\n")
+            f.write(f"Errors: {summary_stats['errors']}\n")
             f.write(f"Success rate: {summary_stats['success_rate']:.2%}\n\n")
             
-            f.write("Category Distribution:\n")
-            for category, count in summary_stats['category_distribution'].items():
-                category_info = self.prompts_manager.get_category_info(self.synthesis_type, category)
-                category_name = category_info.get('name', category)
-                f.write(f"  {category_name}: {count}\n")
+            # Category distribution
+            if 'category_distribution' in summary_stats:
+                f.write("Category Distribution:\n")
+                for category, count in summary_stats['category_distribution'].items():
+                    category_info = self.prompts_manager.get_category_info(self.synthesis_type, category)
+                    category_name = category_info.get('name', category)
+                    f.write(f"  {category_name}: {count}\n")
             
+            # Classification distribution
             if 'classification_distribution' in summary_stats:
                 f.write("\nClassification Distribution:\n")
                 for classification, count in summary_stats['classification_distribution'].items():
                     f.write(f"  {classification}: {count}\n")
             
-            f.write(f"\nGeneration completed: {timestamp}\n")
+            f.write(f"\nGeneration completed: {summary_stats['generation_timestamp']}\n")
             f.write(f"Model: {self.provider} - {self.model}\n")
-        
-        return {
-            'detailed_results': str(detailed_path),
-            'summary_json': str(summary_path),
-            'summary_report': str(report_path),
-            'success_count': len(successful_results),
-            'error_count': len(error_results),
-            'total_count': len(results)
-        }
+    
+    def _save_to_mongodb(self, successful_results: List[Dict]) -> Dict[str, Any]:
+        """Save results to MongoDB."""
+        try:
+            logger.info("Saving data to MongoDB...")
+            
+            db_service = get_scam_data_service()
+            mongodb_result = db_service.store_synthesis_results(
+                synthesis_type=self.synthesis_type,
+                results=successful_results
+            )
+            
+            if mongodb_result.get('success'):
+                logger.info(f"Successfully saved {mongodb_result['inserted_count']} records to MongoDB")
+            else:
+                logger.error(f"Failed to save to MongoDB: {mongodb_result.get('error', 'Unknown error')}")
+                
+            return mongodb_result
+            
+        except ImportError:
+            logger.error("Could not import database service")
+            return {'success': False, 'error': 'Database service not available'}
+        except Exception as e:
+            logger.error(f"Error saving to MongoDB: {e}")
+            return {'success': False, 'error': str(e)}
     
     def _get_checkpoint_filename(self) -> str:
         """Generate checkpoint filename."""
@@ -414,7 +502,7 @@ Ensure all fields are included in your response."""
             return True
             
         except Exception as e:
-            print(f"Error loading checkpoint: {e}")
+            logger.error(f"Error loading checkpoint: {e}")
             return False
     
     def save_checkpoint(self, checkpoint_dir: str = "checkpoints/synthesis"):
@@ -459,7 +547,7 @@ Ensure all fields are included in your response."""
             with open(self.checkpoint_file, 'w') as f:
                 json.dump(checkpoint_data, f, indent=2, default=str)
         except Exception as e:
-            print(f"Error saving checkpoint: {e}")
+            logger.error(f"Error saving checkpoint: {e}")
             # Try alternative serialization
             def json_encoder(obj):
                 if isinstance(obj, Enum):
@@ -505,20 +593,38 @@ Ensure all fields are included in your response."""
         # Setup models
         self.setup_models()
         
-        # Get available categories
-        categories = self.prompts_manager.get_category_names(self.synthesis_type)
-        if not categories:
-            raise ValueError(f"No categories defined for synthesis type: {self.synthesis_type}")
+        # Get categories based on user selection
+        if self.category == "ALL":
+            # Get all available categories
+            categories = self.prompts_manager.get_category_names(self.synthesis_type)
+            if not categories:
+                raise UnknownSynthesisTypeError(f"No categories defined for synthesis type: {self.synthesis_type}")
+        else:
+            # Use specific category only
+            categories = [self.category]
         
         # Calculate remaining work
         remaining_count = self.sample_size - self.current_index
         print(f"Generating {remaining_count} additional {self.synthesis_type} items...")
+        if self.category != "ALL":
+            print(f"Using category: {self.category}")
         
-        # Create category list for remaining items (round-robin through categories)
+        # Create category list for remaining items
         remaining_categories = []
-        for i in range(remaining_count):
-            category_index = (self.current_index + i) % len(categories)
-            remaining_categories.append(categories[category_index])
+        if self.category == "ALL":
+            # Round-robin through all categories
+            for i in range(remaining_count):
+                category_index = (self.current_index + i) % len(categories)
+                remaining_categories.append(categories[category_index])
+            
+            # Warn if starting fresh and not all categories will be used
+            if self.current_index == 0 and self.sample_size < len(categories):
+                print(f"\n⚠️  WARNING: Generating {self.sample_size} items but {len(categories)} categories available.")
+                print(f"   Only the first {self.sample_size} categories will be used.")
+                print(f"   Consider generating at least {len(categories)} items for full coverage.\n")
+        else:
+            # Use the same specific category for all items
+            remaining_categories = [self.category] * remaining_count
         
         # Process in batches with checkpointing
         batch_size = max(1, checkpoint_interval)
@@ -566,16 +672,28 @@ Ensure all fields are included in your response."""
             # Setup models
             self.setup_models()
             
-            # Get available categories
-            categories = self.prompts_manager.get_category_names(self.synthesis_type)
-            if not categories:
-                raise ValueError(f"No categories defined for synthesis type: {self.synthesis_type}")
-            
-            # Create category list (round-robin)
-            generation_categories = []
-            for i in range(self.sample_size):
-                category_index = i % len(categories)
-                generation_categories.append(categories[category_index])
+            # Get categories based on user selection
+            if self.category == "ALL":
+                # Get all available categories
+                categories = self.prompts_manager.get_category_names(self.synthesis_type)
+                if not categories:
+                    raise UnknownSynthesisTypeError(f"No categories defined for synthesis type: {self.synthesis_type}")
+                    
+                # Create category list (round-robin)
+                generation_categories = []
+                for i in range(self.sample_size):
+                    category_index = i % len(categories)
+                    generation_categories.append(categories[category_index])
+                
+                # Warn if not all categories will be used
+                if self.sample_size < len(categories):
+                    print(f"\n⚠️  WARNING: Generating {self.sample_size} items but {len(categories)} categories available.")
+                    print(f"   Only categories {categories[:self.sample_size]} will be used.")
+                    print(f"   Consider generating at least {len(categories)} items for full coverage.\n")
+            else:
+                # Use specific category for all items
+                generation_categories = [self.category] * self.sample_size
+                print(f"Generating all items with category: {self.category}")
             
             # Generate items
             results = await self.generate_batch_async(generation_categories)

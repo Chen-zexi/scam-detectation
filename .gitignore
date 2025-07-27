@@ -4,6 +4,7 @@
 results/*
 src/results/*
 
+archive/*
 
 # Python
 __pycache__/

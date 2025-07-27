@@ -10,6 +10,7 @@ from typing import Dict, Any, Type, Optional, List, Union
 from pydantic import BaseModel, Field, create_model
 from enum import Enum
 import json
+from ..exceptions import SchemaValidationError
 
 
 class SchemaBuilder:
@@ -112,25 +113,25 @@ class SchemaBuilder:
             True if valid, raises ValueError if invalid
         """
         if not isinstance(schema_def, dict):
-            raise ValueError("Schema definition must be a dictionary")
+            raise SchemaValidationError("Schema definition must be a dictionary")
         
         for field_name, field_def in schema_def.items():
             if not isinstance(field_def, dict):
-                raise ValueError(f"Field '{field_name}' definition must be a dictionary")
+                raise SchemaValidationError(f"Field '{field_name}' definition must be a dictionary")
             
             if "type" not in field_def:
-                raise ValueError(f"Field '{field_name}' must have a 'type' attribute")
+                raise SchemaValidationError(f"Field '{field_name}' must have a 'type' attribute")
             
             field_type = field_def["type"]
             if field_type not in self.type_mapping:
-                raise ValueError(f"Unknown type '{field_type}' for field '{field_name}'")
+                raise SchemaValidationError(f"Unknown type '{field_type}' for field '{field_name}'. Supported types: {', '.join(self.type_map.keys())}")
             
             # Validate enum values
             if "enum" in field_def:
                 if not isinstance(field_def["enum"], list):
-                    raise ValueError(f"Enum values for field '{field_name}' must be a list")
+                    raise SchemaValidationError(f"Enum values for field '{field_name}' must be a list")
                 if len(field_def["enum"]) == 0:
-                    raise ValueError(f"Enum values for field '{field_name}' cannot be empty")
+                    raise SchemaValidationError(f"Enum values for field '{field_name}' cannot be empty")
         
         return True
     
