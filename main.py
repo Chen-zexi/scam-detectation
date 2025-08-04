@@ -134,7 +134,9 @@ class InteractiveProcessor:
             enable_thinking=self.config.get('enable_thinking', False),
             use_structure_model=self.config.get('use_structure_model', False),
             save_to_mongodb=self.config.get('save_to_mongodb', True),
-            category=self.config.get('category', 'ALL')
+            category=self.config.get('category', 'ALL'),
+            enable_diversity=self.config.get('enable_diversity', False),
+            diversity_level=self.config.get('diversity_level', 'medium')
         )
         
         return await generator.process_full_generation_with_checkpoints(
@@ -161,6 +163,10 @@ class InteractiveProcessor:
             # Choose category
             category = self.ui_helper.choose_synthesis_category(synthesis_type)
             self.config['category'] = category
+            
+            # Choose diversity settings
+            diversity_settings = self.ui_helper.choose_diversity_settings()
+            self.config.update(diversity_settings)
         else:
             # Choose dataset
             datasets = self.dataset_manager.discover_datasets()

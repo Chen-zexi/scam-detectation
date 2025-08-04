@@ -22,6 +22,7 @@ from src.llm_core.api_provider import LLM
 from src.llm_core.api_call import make_api_call_async
 from src.synthesize.schema_builder import SchemaBuilder
 from src.synthesize.synthesis_prompts import SynthesisPromptsManager
+from src.synthesize.diversity_manager import DiversityManager, DiversityConfig, DiversityLevel
 from src.database import get_scam_data_service
 from src.exceptions import UnknownSynthesisTypeError, ModelInitializationError, APICallError
 
@@ -44,7 +45,10 @@ class SynthesisGenerator:
                  enable_thinking: bool = False,
                  use_structure_model: bool = False,
                  save_to_mongodb: bool = True,
-                 category: str = "ALL"):
+                 category: str = "ALL",
+                 enable_diversity: bool = False,
+                 diversity_level: str = "medium",
+                 diversity_config_path: str = None):
         """
         Initialize the synthesis generator.
         
@@ -59,6 +63,9 @@ class SynthesisGenerator:
             use_structure_model: Whether to use structured output parsing
             save_to_mongodb: Whether to save results to MongoDB database
             category: Specific category to generate or 'ALL' for mixed dataset
+            enable_diversity: Whether to enable diversity enhancement techniques
+            diversity_level: Level of diversity enhancement ('minimal', 'medium', 'high', 'maximum')
+            diversity_config_path: Path to diversity configuration JSON
         """
         self.synthesis_type = synthesis_type
         self.sample_size = sample_size
@@ -70,9 +77,27 @@ class SynthesisGenerator:
         self.save_to_mongodb = save_to_mongodb
         self.category = category
         
+        # Diversity enhancement settings
+        self.enable_diversity = enable_diversity
+        self.diversity_level = diversity_level
+        self.diversity_config_path = diversity_config_path
+        
         # Initialize components
         self.prompts_manager = SynthesisPromptsManager(config_path)
         self.schema_builder = SchemaBuilder()
+        
+        # Initialize diversity manager if enabled
+        self.diversity_manager = None
+        if self.enable_diversity:
+            try:
+                self.diversity_manager = DiversityManager(
+                    self.prompts_manager, 
+                    self.diversity_config_path
+                )
+                logger.info(f"Diversity enhancement enabled at {diversity_level} level")
+            except Exception as e:
+                logger.warning(f"Failed to initialize diversity manager: {e}. Falling back to standard generation.")
+                self.enable_diversity = False
         
         # Validate synthesis type
         if synthesis_type not in self.prompts_manager.get_synthesis_types():
@@ -133,7 +158,67 @@ Ensure all fields are included in your response."""
     
     def create_generation_prompt(self, category: str) -> str:
         """Create a generation prompt for a specific category."""
-        return self.prompts_manager.create_generation_prompt(self.synthesis_type, category)
+        if self.enable_diversity and self.diversity_manager:
+            # Create diversity configuration based on level
+            diversity_config = self._create_diversity_config()
+            return self.diversity_manager.create_diverse_generation_prompt(
+                self.synthesis_type, category, diversity_config
+            )
+        else:
+            # Fall back to standard prompt generation
+            return self.prompts_manager.create_generation_prompt(self.synthesis_type, category)
+    
+    def _create_diversity_config(self) -> DiversityConfig:
+        """Create diversity configuration based on the selected level."""
+        level_map = {
+            "minimal": DiversityLevel.MINIMAL,
+            "medium": DiversityLevel.MEDIUM,
+            "high": DiversityLevel.HIGH,
+            "maximum": DiversityLevel.MAXIMUM
+        }
+        
+        level = level_map.get(self.diversity_level.lower(), DiversityLevel.MEDIUM)
+        
+        # Configure techniques based on level
+        if level == DiversityLevel.MINIMAL:
+            return DiversityConfig(
+                level=level,
+                template_variation=True,
+                context_injection=False,
+                few_shot_learning=False,
+                persona_variation=False,
+                self_consistency=False
+            )
+        elif level == DiversityLevel.MEDIUM:
+            return DiversityConfig(
+                level=level,
+                template_variation=True,
+                context_injection=True,
+                few_shot_learning=True,
+                persona_variation=True,
+                self_consistency=False
+            )
+        elif level == DiversityLevel.HIGH:
+            return DiversityConfig(
+                level=level,
+                template_variation=True,
+                context_injection=True,
+                few_shot_learning=True,
+                persona_variation=True,
+                self_consistency=True,
+                num_candidates=3
+            )
+        else:  # MAXIMUM
+            return DiversityConfig(
+                level=level,
+                template_variation=True,
+                context_injection=True,
+                few_shot_learning=True,
+                persona_variation=True,
+                self_consistency=True,
+                num_candidates=5,
+                confidence_threshold=0.9
+            )
     
     async def generate_single_item(self, category: str) -> Dict[str, Any]:
         """

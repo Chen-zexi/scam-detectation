@@ -327,3 +327,83 @@ class UIHelper:
                         print(f"\nMongoDB: {mongodb.get('inserted_count', 0)} records saved")
         
         print("\n" + "="*80)
+    
+    @staticmethod
+    def choose_diversity_settings() -> Dict[str, Any]:
+        """
+        Interactive diversity enhancement configuration.
+        
+        Returns:
+            Dictionary with diversity settings
+        """
+        print("\n🎯 Diversity Enhancement Settings")
+        print("=" * 40)
+        print("Diversity enhancement improves the variety and quality of generated data")
+        print("using advanced prompt engineering techniques from MetaSynth and CoDSA research.")
+        print()
+        
+        # Ask if user wants diversity enhancement
+        while True:
+            try:
+                enable_choice = input("Enable diversity enhancement? (y/n) [n]: ").strip().lower()
+                if enable_choice in ['', 'n', 'no']:
+                    return {'enable_diversity': False}
+                elif enable_choice in ['y', 'yes']:
+                    break
+                else:
+                    print("Please enter 'y' for yes or 'n' for no")
+            except KeyboardInterrupt:
+                print("\nOperation cancelled")
+                sys.exit(0)
+        
+        # Choose diversity level
+        print("\nSelect diversity enhancement level:")
+        print("1. Minimal   - Basic template rotation")
+        print("2. Medium    - Templates + context + examples (recommended)")
+        print("3. High      - All techniques + self-consistency")
+        print("4. Maximum   - Multi-agent + advanced techniques (experimental)")
+        print()
+        
+        level_map = {
+            1: "minimal",
+            2: "medium", 
+            3: "high",
+            4: "maximum"
+        }
+        
+        while True:
+            try:
+                choice = input("Enter choice [2]: ").strip()
+                if choice == "":
+                    level = "medium"
+                    break
+                
+                choice_num = int(choice)
+                if choice_num in level_map:
+                    level = level_map[choice_num]
+                    break
+                else:
+                    print("Please enter a number between 1-4")
+            except ValueError:
+                print("Please enter a valid number")
+            except KeyboardInterrupt:
+                print("\nOperation cancelled")
+                sys.exit(0)
+        
+        # Show what techniques will be enabled
+        techniques = {
+            "minimal": ["Template Variation"],
+            "medium": ["Template Variation", "Context Injection", "Few-Shot Learning", "Persona Variation"],
+            "high": ["Template Variation", "Context Injection", "Few-Shot Learning", "Persona Variation", "Self-Consistency"],
+            "maximum": ["All techniques", "Multi-Agent Generation", "Advanced Meta-Prompting"]
+        }
+        
+        print(f"\n✅ Diversity level '{level}' selected")
+        print("Enabled techniques:")
+        for technique in techniques[level]:
+            print(f"  • {technique}")
+        
+        return {
+            'enable_diversity': True,
+            'diversity_level': level
+        }

@@ -1,0 +1,312 @@
+{
+  "template_variations": {
+    "phone_transcript": {
+      "authority_scam": [
+        "direct_official",
+        "narrative_building", 
+        "analytical_structured",
+        "conversational_natural",
+        "urgency_focused"
+      ],
+      "tech_support_scam": [
+        "technical_detailed",
+        "problem_discovery",
+        "solution_oriented",
+        "fear_inducing",
+        "helpful_deceptive"
+      ],
+      "urgency_scam": [
+        "time_pressure",
+        "consequence_focused",
+        "limited_opportunity",
+        "countdown_urgency",
+        "final_notice"
+      ],
+      "financial_fraud": [
+        "opportunity_focused",
+        "trust_building",
+        "expertise_demonstration",
+        "success_story",
+        "exclusive_access"
+      ],
+      "legitimate_customer_service": [
+        "professional_standard",
+        "helpful_procedural",
+        "security_conscious",
+        "patient_explanatory",
+        "policy_compliant"
+      ],
+      "legitimate_personal": [
+        "casual_friendly",
+        "family_oriented",
+        "business_professional",
+        "community_focused",
+        "social_natural"
+      ],
+      "borderline_suspicious": [
+        "aggressive_sales",
+        "pressure_tactics",
+        "emotional_manipulation",
+        "urgency_legitimate",
+        "boundary_pushing"
+      ],
+      "subtle_scam": [
+        "sophisticated_approach",
+        "gradual_revelation",
+        "trust_establishment",
+        "professional_deception",
+        "minimal_red_flags"
+      ]
+    },
+    "phishing_email": {
+      "account_verification": [
+        "urgent_security",
+        "routine_maintenance", 
+        "policy_update",
+        "suspicious_activity",
+        "feature_enhancement"
+      ],
+      "prize_notification": [
+        "lottery_winner",
+        "contest_prize",
+        "promotional_reward",
+        "exclusive_opportunity",
+        "limited_time_claim"
+      ],
+      "legitimate_business": [
+        "professional_communication",
+        "service_notification",
+        "account_update",
+        "newsletter_style",
+        "transactional_notice"
+      ]
+    },
+    "sms_scam": {
+      "package_delivery": [
+        "urgent_delivery",
+        "failed_attempt",
+        "address_confirmation",
+        "fee_payment",
+        "tracking_update"
+      ],
+      "banking_alert": [
+        "security_breach",
+        "transaction_alert",
+        "account_verification",
+        "card_blocked",
+        "suspicious_login"
+      ],
+      "legitimate_notification": [
+        "appointment_reminder",
+        "service_update",
+        "delivery_confirmation",
+        "two_factor_auth",
+        "promotional_offer"
+      ]
+    }
+  },
+  "context_pools": {
+    "demographics": [
+      "young professional in their 20s working in tech",
+      "middle-aged parent with two children", 
+      "senior citizen over 65 living alone",
+      "college student managing finances independently",
+      "retiree on a fixed income",
+      "small business owner struggling with cashflow",
+      "healthcare worker with irregular hours",
+      "teacher during summer break",
+      "single parent working multiple jobs",
+      "recent immigrant learning the system",
+      "military veteran transitioning to civilian life",
+      "stay-at-home parent managing household finances"
+    ],
+    "timeframes": [
+      "early morning (6-8 AM) before work",
+      "mid-morning (9-11 AM) during work hours", 
+      "lunch time (11 AM-1 PM) on a break",
+      "afternoon (1-5 PM) during busy work period",
+      "evening (5-8 PM) after work wind-down",
+      "late evening (8-10 PM) relaxing at home",
+      "weekend morning leisurely time",
+      "weekend evening family time",
+      "holiday period with limited business hours",
+      "during commute or travel"
+    ],
+    "locations": [
+      "busy urban office environment",
+      "quiet suburban home setting", 
+      "rural area with limited connectivity",
+      "coffee shop or public space",
+      "medical facility waiting room",
+      "retail store or shopping center",
+      "vehicle during commute",
+      "vacation or travel location",
+      "elderly care facility",
+      "university campus setting"
+    ],
+    "emotional_states": [
+      "calm and collected, thinking clearly",
+      "slightly anxious about financial matters",
+      "confused but trying to be cooperative",
+      "suspicious and asking questions",
+      "stressed about recent life changes",
+      "eager to resolve a pressing issue",
+      "tired after a long work day",
+      "distracted by family responsibilities",
+      "worried about elderly parent's health",
+      "excited about potential opportunities",
+      "frustrated with previous bad experiences",
+      "cautious due to past scam encounters"
+    ],
+    "technical_levels": [
+      "very tech-savvy, works in IT field",
+      "moderate computer skills, uses smartphones daily",
+      "basic technology user, comfortable with simple tasks",
+      "minimal tech experience, prefers phone calls",
+      "resistant to new technology, needs help",
+      "learning technology out of necessity",
+      "comfortable with specific apps but not general tech",
+      "relies on family members for tech support"
+    ],
+    "financial_situations": [
+      "financially stable with good credit",
+      "living paycheck to paycheck",
+      "recently faced unexpected medical bills",
+      "saving for major purchase like home",
+      "dealing with debt consolidation",
+      "recently retired with fixed income",
+      "starting new business with limited capital",
+      "recovering from job loss or career change",
+      "managing student loan payments",
+      "supporting elderly parents financially"
+    ],
+    "communication_preferences": [
+      "prefers text messages and email",
+      "likes phone calls for important matters",
+      "uses social media for most communication",
+      "prefers in-person or written correspondence",
+      "comfortable with video calls",
+      "uses messaging apps with family",
+      "relies on traditional mail and phone",
+      "prefers official channels and documentation"
+    ]
+  },
+  "personas": {
+    "scammer_types": [
+      "authoritative government official with badge numbers",
+      "helpful tech support agent with company knowledge",
+      "urgent financial advisor with insider information",
+      "friendly customer service rep building rapport",
+      "security specialist with technical expertise",
+      "health insurance coordinator with policy details",
+      "bank fraud specialist with account information",
+      "tax preparation expert with filing deadlines",
+      "utility company representative with service threats",
+      "legal process server with court documents",
+      "charity coordinator with emotional appeals",
+      "investment advisor with exclusive opportunities"
+    ],
+    "victim_types": [
+      "trusting elderly person concerned about security",
+      "busy professional trying to multitask",
+      "concerned parent worried about family safety",
+      "tech-confused user seeking help",
+      "financially stressed individual looking for solutions",
+      "health-conscious citizen worried about coverage",
+      "recent retiree adjusting to fixed income",
+      "small business owner managing multiple responsibilities",
+      "college student inexperienced with finances",
+      "immigrant unfamiliar with local systems",
+      "caregiver managing elderly parent's affairs",
+      "person dealing with recent life crisis"
+    ]
+  },
+  "few_shot_examples": {
+    "phone_transcript": {
+      "authority_scam": [
+        {
+          "quality": "high",
+          "description": "IRS agent with case number and immediate payment demand",
+          "key_elements": ["official identification", "case reference", "payment urgency", "consequence threats"]
+        },
+        {
+          "quality": "high", 
+          "description": "Social Security Administration suspension notice",
+          "key_elements": ["government authority", "benefit suspension", "verification process", "time pressure"]
+        },
+        {
+          "quality": "medium",
+          "description": "Medicare fraud alert requiring immediate response",
+          "key_elements": ["health insurance concern", "fraud investigation", "cooperation required", "personal info request"]
+        }
+      ],
+      "tech_support_scam": [
+        {
+          "quality": "high",
+          "description": "Microsoft security breach notification with remote access request",
+          "key_elements": ["security alert", "technical jargon", "remote assistance", "immediate action"]
+        },
+        {
+          "quality": "high",
+          "description": "Router security compromise with password reset",
+          "key_elements": ["network security", "device compromise", "technical explanation", "access credentials"]
+        }
+      ]
+    },
+    "phishing_email": {
+      "account_verification": [
+        {
+          "quality": "high",
+          "description": "Bank account suspension requiring immediate login verification",
+          "key_elements": ["account security", "login link", "deadline pressure", "credential request"]
+        },
+        {
+          "quality": "medium",
+          "description": "Email storage full requiring password confirmation",
+          "key_elements": ["service disruption", "authentication needed", "storage concern", "data loss threat"]
+        }
+      ]
+    }
+  },
+  "advanced_techniques": {
+    "self_consistency": {
+      "enabled": false,
+      "num_candidates": 3,
+      "selection_criteria": ["coherence", "realism", "diversity"],
+      "confidence_threshold": 0.8
+    },
+    "chain_of_thought": {
+      "enabled": true,
+      "reasoning_steps": ["scenario_setup", "character_development", "interaction_flow", "outcome_generation"],
+      "step_guidance": {
+        "scenario_setup": "Establish realistic context and setting",
+        "character_development": "Define participant motivations and backgrounds", 
+        "interaction_flow": "Create natural conversation progression",
+        "outcome_generation": "Ensure authentic and varied conclusions"
+      }
+    },
+    "meta_prompting": {
+      "enabled": false,
+      "expert_agents": ["social_engineer", "authority_figure", "tech_specialist", "victim_advocate"],
+      "consensus_mechanism": "weighted_vote"
+    }
+  },
+  "quality_filters": {
+    "minimum_length": {
+      "phone_transcript": 200,
+      "phishing_email": 100,
+      "sms_scam": 30
+    },
+    "required_elements": {
+      "phone_transcript": ["speaker_identification", "realistic_dialogue", "clear_intent"],
+      "phishing_email": ["subject_line", "sender_address", "call_to_action"],
+      "sms_scam": ["sender_id", "message_content", "urgency_indicator"]
+    },
+    "diversity_requirements": {
+      "avoid_repetition": true,
+      "vary_language_patterns": true,
+      "include_edge_cases": true,
+      "balance_sophistication_levels": true
+    }
+  }
+}
