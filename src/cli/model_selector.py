@@ -1,29 +1,27 @@
 """
-Model provider selection and management.
+Model provider selection and management with parameter configuration.
 """
 
 import os
+import json
 import logging
 import requests
-from typing import List, Optional
+from pathlib import Path
+from typing import List, Optional, Dict, Tuple
 
 logger = logging.getLogger(__name__)
 
 
 class ModelSelector:
-    """Handles model provider and model selection."""
+    """Handles model provider, model selection, and parameter configuration."""
     
     def __init__(self):
         """Initialize model selector with environment configuration."""
-        self.openai_models = [
-            "gpt-4.1-mini",
-            "gpt-4.1-nano", 
-            "gpt-4.1",
-            "gpt-4o",
-            "gpt-4o-mini",
-            "o3",
-            "o4-mini"
-        ]
+        # Load model configuration from JSON
+        config_path = Path(__file__).parent.parent / "llm_core" / "model_config.json"
+        with open(config_path, 'r') as f:
+            self.config = json.load(f)
+        
         self.host_ip = os.getenv("HOST_IP", "127.0.0.1")
         
     def choose_provider(self) -> str:
@@ -59,16 +57,28 @@ class ModelSelector:
                 print("\nOperation cancelled")
                 raise SystemExit(0)
     
-    def get_openai_models(self) -> List[str]:
-        """Get list of available OpenAI models."""
-        return self.openai_models.copy()
+    def get_models_from_config(self, provider: str) -> List[Dict]:
+        """
+        Get models from configuration file.
+        
+        Args:
+            provider: Provider name
+            
+        Returns:
+            List of model dictionaries
+        """
+        return self.config["models"].get(provider, [])
     
-    def get_lm_studio_models(self) -> List[str]:
+    def get_openai_models(self) -> List[Dict]:
+        """Get list of available OpenAI models from config."""
+        return self.get_models_from_config("openai")
+    
+    def get_lm_studio_models(self) -> List[Dict]:
         """
         Fetch available models from LM-Studio API.
         
         Returns:
-            List of model names
+            List of model dictionaries
         """
         models = []
         try:
@@ -80,7 +90,14 @@ class ModelSelector:
                 for model in data.get("data", []):
                     model_id = model.get("id", "")
                     if model_id:
-                        models.append(model_id)
+                        # Create a model dict compatible with our config format
+                        models.append({
+                            "id": model_id,
+                            "name": model_id,
+                            "is_reasoning": False,
+                            "reasoning_efforts": [],
+                            "description": "LM-Studio loaded model"
+                        })
             else:
                 logger.warning(f"LM-Studio returned status {response.status_code}")
                 
@@ -93,12 +110,12 @@ class ModelSelector:
             
         return models
     
-    def get_vllm_models(self) -> List[str]:
+    def get_vllm_models(self) -> List[Dict]:
         """
         Fetch available models from vLLM API.
         
         Returns:
-            List of model names
+            List of model dictionaries
         """
         models = []
         try:
@@ -110,7 +127,14 @@ class ModelSelector:
                 for model in data.get("data", []):
                     model_id = model.get("id", "")
                     if model_id:
-                        models.append(model_id)
+                        # Create a model dict compatible with our config format
+                        models.append({
+                            "id": model_id,
+                            "name": model_id,
+                            "is_reasoning": False,
+                            "reasoning_efforts": [],
+                            "description": "vLLM loaded model"
+                        })
             else:
                 logger.warning(f"vLLM returned status {response.status_code}")
                 
@@ -123,15 +147,115 @@ class ModelSelector:
             
         return models
     
-    def choose_model(self, provider: str) -> str:
+    def configure_model_parameters(self, provider: str, model_info: Dict) -> Dict[str, any]:
         """
-        Interactive model selection for a provider.
+        Configure parameters for the selected model.
+        
+        Args:
+            provider: Provider name
+            model_info: Model information dictionary
+            
+        Returns:
+            Dictionary of configured parameters
+        """
+        parameters = {}
+        
+        # Check if this is a model with configurable parameters
+        if model_info.get("parameters"):
+            print("\n" + "="*40)
+            print("MODEL PARAMETER CONFIGURATION")
+            print("="*40)
+            
+            # Configure reasoning effort if available
+            if "reasoning_effort" in model_info.get("parameters", {}):
+                param_info = model_info["parameters"]["reasoning_effort"]
+                options = param_info.get("options", [])
+                default = param_info.get("default", options[0] if options else "medium")
+                
+                print(f"\nReasoning Effort:")
+                print(f"Controls reasoning depth")
+                for i, option in enumerate(options, 1):
+                    default_marker = " (default)" if option == default else ""
+                    print(f"  {i}. {option.capitalize()}{default_marker}")
+                
+                while True:
+                    choice = input(f"\nSelect (1-{len(options)}) or press Enter for default [{default}]: ").strip()
+                    if not choice:  # User pressed Enter
+                        parameters['reasoning_effort'] = default
+                        print(f"Using default: {default}")
+                        break
+                    try:
+                        choice_num = int(choice)
+                        if 1 <= choice_num <= len(options):
+                            parameters['reasoning_effort'] = options[choice_num - 1]
+                            print(f"Selected: {parameters['reasoning_effort']}")
+                            break
+                        else:
+                            print(f"Please enter a number between 1 and {len(options)}")
+                    except ValueError:
+                        print("Please enter a valid number or press Enter for default")
+            
+            # Configure verbosity if available (for GPT-5 models)
+            if "verbosity" in model_info.get("parameters", {}):
+                param_info = model_info["parameters"]["verbosity"]
+                options = param_info.get("options", [])
+                default = param_info.get("default", options[0] if options else "medium")
+                
+                print(f"\nVerbosity:")
+                print(f"Controls response length and detail")
+                for i, option in enumerate(options, 1):
+                    default_marker = " (default)" if option == default else ""
+                    print(f"  {i}. {option.capitalize()}{default_marker}")
+                
+                while True:
+                    choice = input(f"\nSelect (1-{len(options)}) or press Enter for default [{default}]: ").strip()
+                    if not choice:  # User pressed Enter
+                        parameters['verbosity'] = default
+                        print(f"Using default: {default}")
+                        break
+                    try:
+                        choice_num = int(choice)
+                        if 1 <= choice_num <= len(options):
+                            parameters['verbosity'] = options[choice_num - 1]
+                            print(f"Selected: {parameters['verbosity']}")
+                            break
+                        else:
+                            print(f"Please enter a number between 1 and {len(options)}")
+                    except ValueError:
+                        print("Please enter a valid number or press Enter for default")
+        
+        # Configure task settings for local providers (LM-Studio, vLLM)
+        if provider in ["lm-studio", "vllm"]:
+            print("\n" + "="*40)
+            print("ADVANCED TASK SETTINGS")
+            print("="*40)
+            print("\nThese settings are available for local model providers:")
+            
+            # Enable thinking configuration
+            print("\n1. Enable Thinking/Chain-of-Thought:")
+            print("   Allows the model to show its reasoning process")
+            enable_thinking = input("   Enable? (y/n) or press Enter for default [n]: ").strip().lower()
+            parameters['enable_thinking'] = enable_thinking == 'y'
+            print(f"   Thinking mode: {'Enabled' if parameters['enable_thinking'] else 'Disabled (default)'}")
+            
+            # Use structure model configuration
+            print("\n2. Use Structure Model:")
+            print("   Uses a specialized model for parsing structured outputs")
+            use_structure = input("   Enable? (y/n) or press Enter for default [n]: ").strip().lower()
+            parameters['use_structure_model'] = use_structure == 'y'
+            print(f"   Structure model: {'Enabled' if parameters['use_structure_model'] else 'Disabled (default)'}")
+        
+        return parameters
+    
+    def choose_model(self, provider: str) -> Tuple[str, Dict[str, any]]:
+        """
+        Interactive model selection and parameter configuration.
         
         Args:
             provider: Selected provider name
             
         Returns:
-            Selected model name
+            Tuple of (selected model name, configured parameters)
         """
         print(f"\nSTEP 4: Select Model ({provider.upper()})")
         print("-" * 40)
@@ -151,15 +275,19 @@ class ModelSelector:
         
         print("Available models:")
         for i, model in enumerate(models, 1):
-            print(f"{i}. {model}")
+            reasoning_marker = " [Reasoning]" if model.get("is_reasoning") else ""
+            description = f" - {model['description']}" if model.get("description") else ""
+            print(f"{i}. {model['name']}{reasoning_marker}{description}")
         
+        selected_model = None
         while True:
             try:
                 choice = int(input(f"\nSelect model (1-{len(models)}): ").strip())
                 if 1 <= choice <= len(models):
-                    selected = models[choice - 1]
-                    print(f"Selected: {selected}")
-                    return selected
+                    selected_model = models[choice - 1]
+                    model_id = selected_model["id"]
+                    print(f"Selected: {selected_model['name']}")
+                    break
                 else:
                     print(f"Please enter a number between 1 and {len(models)}")
             except ValueError:
@@ -167,3 +295,34 @@ class ModelSelector:
             except KeyboardInterrupt:
                 print("\nOperation cancelled")
                 raise SystemExit(0)
+        
+        # Configure parameters for the selected model
+        parameters = self.configure_model_parameters(provider, selected_model)
+        
+        # Show configuration summary
+        if parameters:
+            print("\n" + "="*40)
+            print("CONFIGURATION SUMMARY")
+            print("="*40)
+            print(f"Model: {selected_model['name']}")
+            for key, value in parameters.items():
+                print(f"  - {key.replace('_', ' ').title()}: {value}")
+        
+        return model_id, parameters
+    
+    def get_model_info(self, provider: str, model_id: str) -> Optional[Dict]:
+        """
+        Get information about a specific model.
+        
+        Args:
+            provider: Provider name
+            model_id: Model ID
+            
+        Returns:
+            Model information dictionary or None
+        """
+        models = self.config["models"].get(provider, [])
+        for model in models:
+            if model["id"] == model_id:
+                return model
+        return None

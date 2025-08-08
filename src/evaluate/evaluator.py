@@ -12,6 +12,7 @@ class EvaluationResponseSchema(BaseModel):
     Reason: str
 from src.utils.metrics_calculator import MetricsCalculator
 from src.utils.results_saver import ResultsSaver
+from src.utils.model_config_manager import ModelConfigManager
 import asyncio
 import time
 import json
@@ -34,7 +35,8 @@ class ScamDetectionEvaluator:
                  random_state: int = 42,
                  enable_thinking: bool = False,
                  content_columns: Optional[List[str]] = None,
-                 use_structure_model: bool = False):
+                 use_structure_model: bool = False,
+                 **model_parameters):
         """
         Initialize the evaluator with dataset and model configuration
         
@@ -55,6 +57,7 @@ class ScamDetectionEvaluator:
         self.balanced_sample = balanced_sample
         self.random_state = random_state
         self.content_columns = content_columns
+        self.model_parameters = model_parameters
         
         # Initialize components
         self.data_loader = DatasetLoader(dataset_path)
@@ -76,11 +79,17 @@ class ScamDetectionEvaluator:
     def setup_llm(self):
         """Initialize the LLM"""
         try:
-            self.llm_instance = LLM(provider=self.provider, model=self.model)
+            # Pass model parameters to LLM instance
+            self.llm_instance = LLM(provider=self.provider, model=self.model, **self.model_parameters)
             self.llm = self.llm_instance.get_llm()
             if self.use_structure_model:
                 self.structure_model = self.llm_instance.get_structure_model()  # Uses gpt-4.1-nano by default
             print(f"LLM initialized successfully: {self.provider} - {self.model}")
+            # Print configured parameters if any
+            if self.model_parameters:
+                param_keys = [k for k in self.model_parameters.keys() if k in ['reasoning_effort', 'verbosity']]
+                if param_keys:
+                    print(f"Model parameters: {', '.join([f'{k}={self.model_parameters[k]}' for k in param_keys])}")
         except Exception as e:
             raise Exception(f"Error initializing LLM: {e}")
     
@@ -346,6 +355,18 @@ class ScamDetectionEvaluator:
         
         return result
     
+    def get_model_config(self) -> Dict[str, Any]:
+        """Get detailed model configuration using ModelConfigManager."""
+        return ModelConfigManager.get_model_config(
+            llm_instance=self.llm_instance,
+            provider=self.provider,
+            model=self.model,
+            enable_thinking=self.enable_thinking,
+            use_structure_model=self.use_structure_model,
+            sample_size=self.sample_size,
+            balanced_sample=self.balanced_sample
+        )
+    
     def calculate_metrics(self) -> Dict[str, Any]:
         """Calculate performance metrics"""
         if not self.results:
@@ -372,13 +393,18 @@ class ScamDetectionEvaluator:
         
         dataset_info['features'] = self.content_columns
         dataset_info['features_used'] = self.content_columns
+        
+        # Get model configuration
+        model_config = self.get_model_config()
+        
         calculator = MetricsCalculator(self.results)
         calculator.print_metrics_summary(dataset_info)
-        # Initialize results saver
+        # Initialize results saver with model config
         saver = ResultsSaver(
             dataset_name=self.data_loader.dataset_name,
             provider=self.provider,
-            model=self.model
+            model=self.model,
+            model_config=model_config
         )
         
         # Save results

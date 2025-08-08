@@ -108,23 +108,10 @@ class ConfigManager:
             
             print(f"Concurrent requests: {config['concurrent_requests']}")
         
-        # Advanced options (not for synthesis)
-        if task != "synthesis":
-            print("\nAdvanced Options:")
-            
-            # Enable thinking
-            response = input("Enable thinking tokens? (y/n) [n]: ").strip().lower()
-            config['enable_thinking'] = response == 'y'
-            print(f"Thinking tokens: {'Enabled' if config['enable_thinking'] else 'Disabled'}")
-            
-            # Structure model
-            response = input("Use structure model for parsing? (y/n) [n]: ").strip().lower()
-            config['use_structure_model'] = response == 'y'
-            print(f"Structure model: {'Enabled' if config['use_structure_model'] else 'Disabled'}")
-        else:
-            # Set defaults for synthesis
-            config['enable_thinking'] = False
-            config['use_structure_model'] = False
+        # Advanced options are configured in model_selector for local providers
+        # Set defaults here - they will be overridden if configured in model_selector
+        config['enable_thinking'] = False
+        config['use_structure_model'] = False
         
         # MongoDB saving (for synthesis)
         if task == "synthesis":

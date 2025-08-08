@@ -24,6 +24,7 @@ from src.synthesize.schema_builder import SchemaBuilder
 from src.synthesize.synthesis_prompts import SynthesisPromptsManager
 from src.database import get_scam_data_service
 from src.exceptions import UnknownSynthesisTypeError, ModelInitializationError, APICallError
+from src.utils.model_config_manager import ModelConfigManager
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +45,8 @@ class SynthesisGenerator:
                  enable_thinking: bool = False,
                  use_structure_model: bool = False,
                  save_to_mongodb: bool = True,
-                 category: str = "ALL"):
+                 category: str = "ALL",
+                 **model_parameters):
         """
         Initialize the synthesis generator.
         
@@ -69,6 +71,7 @@ class SynthesisGenerator:
         self.use_structure_model = use_structure_model
         self.save_to_mongodb = save_to_mongodb
         self.category = category
+        self.model_parameters = model_parameters
         
         # Initialize components
         self.prompts_manager = SynthesisPromptsManager(config_path)
@@ -94,16 +97,29 @@ class SynthesisGenerator:
         self.current_index = 0
         self.checkpoint_file = None
         self.start_time = None
+        self.llm_instance = None
+    
+    def get_model_config(self) -> Dict[str, Any]:
+        """Get detailed model configuration using ModelConfigManager."""
+        return ModelConfigManager.get_model_config(
+            llm_instance=self.llm_instance,
+            provider=self.provider,
+            model=self.model,
+            enable_thinking=self.enable_thinking,
+            use_structure_model=self.use_structure_model,
+            sample_size=self.sample_size
+        )
     
     def setup_models(self):
         """Initialize the LLM models."""
         try:
-            self.llm = LLM(provider=self.provider, model=self.model).get_llm()
+            # Pass model parameters to LLM instance
+            self.llm_instance = LLM(provider=self.provider, model=self.model, **self.model_parameters)
+            self.llm = self.llm_instance.get_llm()
             logger.info(f"Model initialized: {self.provider} - {self.model}")
             
             if self.use_structure_model:
-                llm_provider = LLM()
-                self.structure_model = llm_provider.get_structure_model()
+                self.structure_model = self.llm_instance.get_structure_model()
                 logger.info("Structure model initialized for parsing")
                 
         except Exception as e:
@@ -362,6 +378,9 @@ Ensure all fields are included in your response."""
         """Generate summary statistics for the results."""
         type_info = self.prompts_manager.get_synthesis_type_info(self.synthesis_type)
         
+        # Get model configuration
+        model_config = self.get_model_config() if hasattr(self, 'llm_instance') else {}
+        
         stats = {
             'synthesis_type': self.synthesis_type,
             'synthesis_name': type_info.get('name', self.synthesis_type),
@@ -371,6 +390,7 @@ Ensure all fields are included in your response."""
             'success_rate': len(successful_results) / len(all_results) if all_results else 0,
             'provider': self.provider,
             'model': self.model,
+            'model_config': ModelConfigManager.format_for_json(model_config) if model_config else {},
             'generation_timestamp': datetime.now().strftime("%Y%m%d_%H%M%S"),
             'config': {
                 'enable_thinking': self.enable_thinking,

@@ -50,6 +50,13 @@ class InteractiveProcessor:
         
     async def run_evaluation(self) -> Dict[str, Any]:
         """Run evaluation task."""
+        # Extract model parameters to pass to evaluator
+        model_params = {}
+        if 'reasoning_effort' in self.config:
+            model_params['reasoning_effort'] = self.config['reasoning_effort']
+        if 'verbosity' in self.config:
+            model_params['verbosity'] = self.config['verbosity']
+        
         evaluator = ScamDetectionEvaluator(
             dataset_path=self.config['dataset_path'],
             provider=self.config['provider'],
@@ -57,7 +64,8 @@ class InteractiveProcessor:
             sample_size=self.config.get('sample_size'),
             balanced_sample=self.config.get('balanced_sample', True),
             enable_thinking=self.config.get('enable_thinking', False),
-            use_structure_model=self.config.get('use_structure_model', False)
+            use_structure_model=self.config.get('use_structure_model', False),
+            **model_params
         )
         
         # Check if we're processing a sample or full dataset
@@ -88,6 +96,13 @@ class InteractiveProcessor:
     
     async def run_annotation(self) -> Dict[str, Any]:
         """Run annotation task."""
+        # Extract model parameters to pass to annotator
+        model_params = {}
+        if 'reasoning_effort' in self.config:
+            model_params['reasoning_effort'] = self.config['reasoning_effort']
+        if 'verbosity' in self.config:
+            model_params['verbosity'] = self.config['verbosity']
+        
         annotator = LLMAnnotationPipeline(
             dataset_path=self.config['dataset_path'],
             provider=self.config['provider'],
@@ -95,7 +110,8 @@ class InteractiveProcessor:
             sample_size=self.config.get('sample_size'),
             balanced_sample=self.config.get('balanced_sample', True),
             enable_thinking=self.config.get('enable_thinking', False),
-            use_structure_model=self.config.get('use_structure_model', False)
+            use_structure_model=self.config.get('use_structure_model', False),
+            **model_params
         )
         
         # Check if we're processing a sample or full dataset
@@ -126,6 +142,13 @@ class InteractiveProcessor:
     
     async def run_synthesis(self) -> Dict[str, Any]:
         """Run synthesis task."""
+        # Extract model parameters to pass to generator
+        model_params = {}
+        if 'reasoning_effort' in self.config:
+            model_params['reasoning_effort'] = self.config['reasoning_effort']
+        if 'verbosity' in self.config:
+            model_params['verbosity'] = self.config['verbosity']
+        
         generator = SynthesisGenerator(
             synthesis_type=self.config['synthesis_type'],
             sample_size=self.config.get('sample_size', 100),
@@ -134,7 +157,8 @@ class InteractiveProcessor:
             enable_thinking=self.config.get('enable_thinking', False),
             use_structure_model=self.config.get('use_structure_model', False),
             save_to_mongodb=self.config.get('save_to_mongodb', True),
-            category=self.config.get('category', 'ALL')
+            category=self.config.get('category', 'ALL'),
+            **model_params
         )
         
         return await generator.process_full_generation_with_checkpoints(
@@ -230,8 +254,10 @@ class InteractiveProcessor:
         
         # Step 4: Choose model (skip if loaded from checkpoint)
         if not self.config.get('skip_model_selection', False):
-            model = self.model_selector.choose_model(provider)
+            model, model_parameters = self.model_selector.choose_model(provider)
             self.config['model'] = model
+            # Store model parameters in config
+            self.config.update(model_parameters)
         else:
             model = self.config['model']
             print(f"Using model from checkpoint: {model}")

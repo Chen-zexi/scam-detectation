@@ -26,6 +26,7 @@ from src.llm_core.api_provider import LLM
 from src.llm_core.api_call import make_api_call, parse_structured_output, make_api_call_async, parse_structured_output_async, remove_thinking_tokens
 from src.utils.data_loader import DatasetLoader
 from src.utils.results_saver import ResultsSaver
+from src.utils.model_config_manager import ModelConfigManager
 from pydantic import BaseModel
 
 class AnnotationResponseSchema(BaseModel):
@@ -111,7 +112,8 @@ class LLMAnnotationPipeline:
                  content_columns: Optional[List[str]] = None,
                  output_dir: str = "results/annotation",
                  enable_thinking: bool = False,
-                 use_structure_model: bool = False):
+                 use_structure_model: bool = False,
+                 **model_parameters):
         """
         Initialize the annotation pipeline
         
@@ -137,6 +139,7 @@ class LLMAnnotationPipeline:
         self.output_dir = output_dir
         self.enable_thinking = enable_thinking
         self.use_structure_model = use_structure_model
+        self.model_parameters = model_parameters
         
         # Initialize components
         self.data_loader = DatasetLoader(dataset_path)
@@ -156,13 +159,26 @@ class LLMAnnotationPipeline:
     def setup_llm(self):
         """Initialize the LLM"""
         try:
-            self.llm_instance = LLM(provider=self.provider, model=self.model)
+            # Pass model parameters to LLM instance
+            self.llm_instance = LLM(provider=self.provider, model=self.model, **self.model_parameters)
             self.llm = self.llm_instance.get_llm()
             if self.use_structure_model:
                 self.structure_model = self.llm_instance.get_structure_model()  # Uses gpt-4.1-nano by default
             print(f"LLM initialized successfully: {self.provider} - {self.model}")
         except Exception as e:
             raise Exception(f"Error initializing LLM: {e}")
+    
+    def get_model_config(self) -> Dict[str, Any]:
+        """Get detailed model configuration using ModelConfigManager."""
+        return ModelConfigManager.get_model_config(
+            llm_instance=self.llm_instance,
+            provider=self.provider,
+            model=self.model,
+            enable_thinking=self.enable_thinking,
+            use_structure_model=self.use_structure_model,
+            sample_size=self.sample_size,
+            balanced_sample=self.balanced_sample
+        )
     
     def load_and_prepare_data(self) -> pd.DataFrame:
         """Load dataset and prepare sample for annotation"""
@@ -465,6 +481,9 @@ class LLMAnnotationPipeline:
         # Get dataset info
         dataset_info = self.data_loader.get_dataset_info()
         
+        # Get model configuration
+        model_config = self.get_model_config()
+        
         summary = {
             'annotation_info': {
                 'timestamp': pd.Timestamp.now().isoformat(),
@@ -472,6 +491,7 @@ class LLMAnnotationPipeline:
                 'dataset_path': self.dataset_path,
                 'model_provider': self.provider,
                 'model_name': self.model,
+                'model_config': ModelConfigManager.format_for_json(model_config),
                 'sample_size_requested': self.sample_size,
                 'balanced_sample': self.balanced_sample,
                 'random_state': self.random_state,

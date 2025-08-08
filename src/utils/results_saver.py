@@ -4,14 +4,16 @@ import json
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any
+from .model_config_manager import ModelConfigManager
 
 class ResultsSaver:
     """Saves evaluation results to a structured, timestamped directory."""
     
-    def __init__(self, dataset_name: str, provider: str = None, model: str = None):
+    def __init__(self, dataset_name: str, provider: str = None, model: str = None, model_config: Dict[str, Any] = None):
         self.dataset_name = dataset_name
         self.provider = provider
         self.model = model
+        self.model_config = model_config or {}
         self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.results_dir = Path(f"results/evaluation/{dataset_name}/{self.timestamp}")
         
@@ -43,7 +45,8 @@ class ResultsSaver:
             'evaluation_config': {
                 'provider': self.provider,
                 'model': self.model,
-                'sample_size': len(detailed_results)
+                'sample_size': len(detailed_results),
+                'model_config': ModelConfigManager.format_for_json(self.model_config) if self.model_config else {}
             },
             'metrics': metrics,
             'results_directory': str(self.results_dir)
@@ -73,6 +76,11 @@ class ResultsSaver:
             'provider': self.provider,
             'model': self.model
         }
+        
+        # Add model configuration details using ModelConfigManager
+        if self.model_config:
+            model_csv_data = ModelConfigManager.format_for_csv(self.model_config)
+            flattened.update(model_csv_data)
         
         # Add dataset info
         if dataset_info:
@@ -139,8 +147,17 @@ class ResultsSaver:
                 "MODEL CONFIGURATION:",
                 f"- Provider: {self.provider}",
                 f"- Model: {self.model}",
-                ""
             ])
+            
+            # Add detailed model configuration if available
+            if self.model_config:
+                model_display = ModelConfigManager.format_for_display(self.model_config)
+                # Extract just the parameter lines from the display
+                for line in model_display.split('\n'):
+                    if 'Reasoning Effort:' in line or 'Verbosity:' in line or 'Temperature:' in line or 'Max Completion Tokens:' in line:
+                        report_lines.append(f"  {line.strip()}")
+            
+            report_lines.append("")
         
         if 'error' not in metrics:
             report_lines.extend([
