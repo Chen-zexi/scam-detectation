@@ -51,7 +51,7 @@ class ModelConfigManager:
                 # Extract specific parameter values for easy access
                 for param in ['reasoning_effort', 'verbosity', 'temperature', 
                              'max_completion_tokens', 'top_p', 'presence_penalty',
-                             'frequency_penalty', 'max_tokens']:
+                             'frequency_penalty', 'max_tokens', 'thinking_budget', 'thinking']:
                     if param in llm_instance.parameters:
                         model_config[param] = llm_instance.parameters[param]
             
@@ -106,7 +106,9 @@ class ModelConfigManager:
             'top_p': 'Top-p',
             'presence_penalty': 'Presence Penalty',
             'frequency_penalty': 'Frequency Penalty',
-            'max_tokens': 'Max Tokens'
+            'max_tokens': 'Max Tokens',
+            'thinking_budget': 'Thinking Budget',
+            'thinking': 'Thinking'
         }
         
         for param_key, param_name in param_mapping.items():
@@ -147,7 +149,9 @@ class ModelConfigManager:
             'top_p': 'N/A',
             'presence_penalty': 'N/A',
             'frequency_penalty': 'N/A',
-            'max_tokens': 'N/A'
+            'max_tokens': 'N/A',
+            'thinking_budget': 'N/A',
+            'thinking': 'N/A'
         }
         
         for param, default in param_fields.items():
@@ -187,7 +191,7 @@ class ModelConfigManager:
         # Add active parameters
         param_keys = ['reasoning_effort', 'verbosity', 'temperature', 
                      'max_completion_tokens', 'top_p', 'presence_penalty',
-                     'frequency_penalty', 'max_tokens']
+                     'frequency_penalty', 'max_tokens', 'thinking_budget', 'thinking']
         
         for param in param_keys:
             if param in model_config and model_config[param] is not None:
@@ -223,8 +227,14 @@ class ModelConfigManager:
                 parts.append(f"effort={model_config['reasoning_effort']}")
             if 'verbosity' in model_config:
                 parts.append(f"verbosity={model_config['verbosity']}")
+            if 'thinking_budget' in model_config:
+                parts.append(f"thinking_budget={model_config['thinking_budget']}")
         else:
             if 'temperature' in model_config:
                 parts.append(f"temp={model_config['temperature']}")
+        
+        # Add thinking parameter for Anthropic models
+        if 'thinking' in model_config:
+            parts.append(f"thinking={model_config['thinking']}")
         
         return " | ".join(parts)

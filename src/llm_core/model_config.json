@@ -387,7 +387,7 @@
             "type": "integer",
             "min": -1,
             "max": 24576,
-            "default": -1,
+            "default": 0,
             "description": "Thinking tokens budget (-1 for dynamic, 0 to disable, up to 24576)"
           },
           "temperature": {
@@ -418,13 +418,13 @@
         "id": "gemini-2.5-flash",
         "name": "Gemini 2.5 Flash",
         "is_reasoning": true,
-        "description": "Fast reasoning model with thinking enabled by default",
+        "description": "Fast reasoning model with thinking disabled by default",
         "parameters": {
           "thinking_budget": {
             "type": "integer",
             "min": -1,
             "max": 24576,
-            "default": -1,
+            "default": 0,
             "description": "Thinking tokens budget (-1 for dynamic, 0 to disable, up to 24576)"
           },
           "temperature": {

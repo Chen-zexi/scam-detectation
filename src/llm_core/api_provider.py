@@ -179,6 +179,32 @@ class LLM:
             params["temperature"] = self.parameters["temperature"]
         if "max_tokens" in self.parameters:
             params["max_tokens"] = self.parameters["max_tokens"]
+        if "top_p" in self.parameters:
+            params["top_p"] = self.parameters["top_p"]
+        
+        # Handle thinking parameter for Anthropic models
+        # Default is disabled unless explicitly enabled
+        thinking_config = self.parameters.get("thinking", None)
+        
+        if thinking_config:
+            # If thinking is a dict, use it as-is
+            if isinstance(thinking_config, dict):
+                params["thinking"] = thinking_config
+            # If thinking is a boolean or string
+            elif thinking_config in [True, "enabled", "true"]:
+                params["thinking"] = {
+                    "type": "enabled",
+                    "budget_tokens": 10000  # Default budget
+                }
+            else:
+                params["thinking"] = {
+                    "type": "disabled"
+                }
+        else:
+            # Explicitly disable thinking by default
+            params["thinking"] = {
+                "type": "disabled"
+            }
         
         return params
 
@@ -195,6 +221,32 @@ class LLM:
         # Apply standard parameters
         if "temperature" in self.parameters:
             params["temperature"] = self.parameters["temperature"]
+        
+        if "top_p" in self.parameters:
+            params["top_p"] = self.parameters["top_p"]
+        
+        if "max_output_tokens" in self.parameters:
+            params["max_tokens"] = self.parameters["max_output_tokens"]
+        
+        # Handle thinking_budget for Gemini 2.5 models
+        model_info = self.model_config.get_model_info(self.provider, self.model)
+        if model_info and model_info.get("is_reasoning"):
+            # Default to 0 (disabled) unless explicitly set
+            thinking_budget = self.parameters.get("thinking_budget", 0)
+            
+            # Pass thinking configuration through generation_config
+            # Note: This might need adjustment based on actual Gemini API implementation
+            params["generation_config"] = {
+                "thinking_budget": thinking_budget
+            }
+            
+            # Also include other generation config parameters if present
+            if "temperature" in params:
+                params["generation_config"]["temperature"] = params.pop("temperature")
+            if "top_p" in params:
+                params["generation_config"]["top_p"] = params.pop("top_p")
+            if "max_tokens" in params:
+                params["generation_config"]["max_output_tokens"] = params.pop("max_tokens")
         
         return params
 
