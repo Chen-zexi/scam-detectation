@@ -3,6 +3,7 @@ from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
 from src.llm_core.api_provider import LLM
 from src.llm_core.api_call import make_api_call, parse_structured_output, make_api_call_async, parse_structured_output_async, remove_thinking_tokens
+from src.llm_core.token_counter import TokenUsageTracker
 from src.utils.data_loader import DatasetLoader
 from src.evaluate.prompt_generator import PromptGenerator
 
@@ -75,6 +76,9 @@ class ScamDetectionEvaluator:
         self.total_records = 0
         self.start_time = None
         self.last_checkpoint_message = None
+        
+        # Token tracking (silent by default)
+        self.token_tracker = TokenUsageTracker(verbose=False)
         
     def setup_llm(self):
         """Initialize the LLM"""
@@ -158,15 +162,26 @@ class ScamDetectionEvaluator:
             user_prompt = self.prompt_generator.create_user_prompt(row.to_dict())
             
             try:
+                # Track token usage
+                token_info = {}
+                
                 if self.use_structure_model:
-                    # Make API call
-                    response = make_api_call(self.llm, system_prompt, user_prompt, response_schema=None, enable_thinking=self.enable_thinking, use_structure_model=True, structure_model=self.structure_model)
-                    # Thinking tokens are automatically removed in make_api_call
-                    response = parse_structured_output(self.structure_model, response, EvaluationResponseSchema)
-                    # Response parsed successfully
+                    # Make API call with token tracking
+                    raw_response, token_info = make_api_call(self.llm, system_prompt, user_prompt, 
+                                                            response_schema=None, enable_thinking=self.enable_thinking, 
+                                                            use_structure_model=True, structure_model=self.structure_model,
+                                                            return_token_usage=True)
+                    # Parse structured output
+                    response = parse_structured_output(self.structure_model, raw_response, EvaluationResponseSchema)
                 else:
-                    # Make API call
-                    response = make_api_call(self.llm, system_prompt, user_prompt, response_schema=EvaluationResponseSchema, use_structure_model=False)
+                    # Make API call with token tracking
+                    response, token_info = make_api_call(self.llm, system_prompt, user_prompt, 
+                                                        response_schema=EvaluationResponseSchema, 
+                                                        use_structure_model=False,
+                                                        return_token_usage=True)
+                
+                # Add to token tracker
+                self.token_tracker.add_usage(token_info, self.model, f"record_{i+1}")
                 
                 # Extract prediction
                 predicted_scam = response.Phishing  # Note: API still uses "Phishing" key for compatibility
@@ -176,8 +191,8 @@ class ScamDetectionEvaluator:
                 # Calculate if prediction is correct
                 is_correct = predicted_label == actual_label
                 
-                # Create comprehensive result record
-                result = self._create_result_record(row, predicted_label, is_correct, response.Reason)
+                # Create comprehensive result record with token usage
+                result = self._create_result_record(row, predicted_label, is_correct, response.Reason, token_info)
                 
                 results.append(result)
                 
@@ -234,16 +249,26 @@ class ScamDetectionEvaluator:
                 user_prompt = self.prompt_generator.create_user_prompt(row.to_dict())
                 
                 try:
+                    # Track token usage
+                    token_info = {}
+                    
                     if self.use_structure_model:
-                        # Make async API call
-                        response = await make_api_call_async(self.llm, system_prompt, user_prompt, 
-                                                           response_schema=None, enable_thinking=self.enable_thinking, use_structure_model=True, structure_model=self.structure_model)
-                        # Thinking tokens are automatically removed in make_api_call_async
-                        response = await parse_structured_output_async(self.structure_model, response, EvaluationResponseSchema)
-                        # Response parsed successfully
+                        # Make async API call with token tracking
+                        raw_response, token_info = await make_api_call_async(self.llm, system_prompt, user_prompt, 
+                                                                            response_schema=None, enable_thinking=self.enable_thinking, 
+                                                                            use_structure_model=True, structure_model=self.structure_model,
+                                                                            return_token_usage=True)
+                        # Parse structured output
+                        response = await parse_structured_output_async(self.structure_model, raw_response, EvaluationResponseSchema)
                     else:
-                        # Make async API call
-                        response = await make_api_call_async(self.llm, system_prompt, user_prompt, response_schema=EvaluationResponseSchema, use_structure_model=False)
+                        # Make async API call with token tracking
+                        response, token_info = await make_api_call_async(self.llm, system_prompt, user_prompt, 
+                                                                        response_schema=EvaluationResponseSchema, 
+                                                                        use_structure_model=False,
+                                                                        return_token_usage=True)
+                    
+                    # Add to token tracker
+                    self.token_tracker.add_usage(token_info, self.model, f"async_record_{i+1}")
                     
                     # Extract prediction
                     predicted_scam = response.Phishing  # Note: API still uses "Phishing" key for compatibility
@@ -253,8 +278,8 @@ class ScamDetectionEvaluator:
                     # Calculate if prediction is correct
                     is_correct = predicted_label == actual_label
                     
-                    # Create comprehensive result record
-                    result = self._create_result_record(row, predicted_label, is_correct, response.Reason)
+                    # Create comprehensive result record with token usage
+                    result = self._create_result_record(row, predicted_label, is_correct, response.Reason, token_info)
                     
                     tqdm.write(f"Record {i+1} - Actual: {'Scam' if actual_label == 1 else 'Legitimate'}, "
                               f"Predicted: {'Scam' if predicted_label == 1 else 'Legitimate'}, Correct: {is_correct}")
@@ -305,7 +330,8 @@ class ScamDetectionEvaluator:
                              row: pd.Series, 
                              predicted_label: int, 
                              is_correct: bool, 
-                             llm_reason: str) -> Dict[str, Any]:
+                             llm_reason: str,
+                             token_info: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Create a comprehensive result record including original data"""
         # Label should be clean at this point due to pre-filtering
         actual_label = int(row['label'])
@@ -318,6 +344,16 @@ class ScamDetectionEvaluator:
             'is_correct': is_correct,
             'llm_reason': llm_reason
         }
+        
+        # Add token usage if available
+        if token_info:
+            result['token_usage'] = {
+                'input_tokens': token_info.get('input_tokens', 0),
+                'output_tokens': token_info.get('output_tokens', 0),
+                'total_tokens': token_info.get('total_tokens', 0)
+            }
+            if 'reasoning_tokens' in token_info:
+                result['token_usage']['reasoning_tokens'] = token_info['reasoning_tokens']
         
         # Add id column if it exists
         if 'id' in row:
@@ -394,6 +430,11 @@ class ScamDetectionEvaluator:
         dataset_info['features'] = self.content_columns
         dataset_info['features_used'] = self.content_columns
         
+        # Add token usage summary to metrics
+        token_summary = self.get_token_summary()
+        if token_summary:
+            metrics['token_usage'] = token_summary
+        
         # Get model configuration
         model_config = self.get_model_config()
         
@@ -415,6 +456,35 @@ class ScamDetectionEvaluator:
         save_paths['summary_report_path'] = report_path
         
         return save_paths
+    
+    def get_token_summary(self, include_details: bool = False) -> Optional[Dict[str, Any]]:
+        """Get summary of token usage from evaluation.
+        
+        Args:
+            include_details: Whether to include detailed by_operation breakdown
+        
+        Returns:
+            Dictionary with token usage summary or None if no usage tracked
+        """
+        if not self.token_tracker.records:
+            return None
+        
+        summary = self.token_tracker.get_summary(include_details=include_details)
+        
+        # Add cost estimation with default OpenAI pricing
+        costs = self.token_tracker.estimate_cost()
+        if costs:
+            summary['estimated_costs'] = costs
+        
+        return summary
+    
+    def print_token_summary(self) -> None:
+        """Print token usage summary to console."""
+        if self.token_tracker.records:
+            self.token_tracker.print_summary()
+            self.token_tracker.print_cost_estimate()
+        else:
+            print("No token usage data available.")
     
     def run_full_evaluation(self) -> Dict[str, Any]:
         """
@@ -447,6 +517,10 @@ class ScamDetectionEvaluator:
         print("\n5. Saving results...")
         save_paths = self.save_results()
         
+        # Print token usage summary
+        print("\n6. Token Usage Summary:")
+        self.print_token_summary()
+        
         print("\n" + "="*80)
         print("EVALUATION COMPLETED SUCCESSFULLY")
         print("="*80)
@@ -455,7 +529,8 @@ class ScamDetectionEvaluator:
             'results': results,
             'metrics': metrics,
             'save_paths': save_paths,
-            'dataset_info': self.data_loader.get_dataset_info()
+            'dataset_info': self.data_loader.get_dataset_info(),
+            'token_usage': self.get_token_summary()
         }
 
     async def run_full_evaluation_async(self, concurrent_requests: int = 10) -> Dict[str, Any]:
@@ -492,11 +567,16 @@ class ScamDetectionEvaluator:
         print("\n5. Saving results...")
         save_paths = self.save_results()
         
+        # Print token usage summary
+        print("\n6. Token Usage Summary:")
+        self.print_token_summary()
+        
         return {
             'results': results,
             'metrics': metrics,
             'save_paths': save_paths,
-            'dataset_info': self.data_loader.get_dataset_info()
+            'dataset_info': self.data_loader.get_dataset_info(),
+            'token_usage': self.get_token_summary()
         }
     
     # ==================== CHECKPOINT FUNCTIONALITY ====================

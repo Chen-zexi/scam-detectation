@@ -70,6 +70,17 @@ class ModelConfig:
     def get_provider_config(self, provider: str) -> Dict:
         """Get provider configuration."""
         return self.config["provider_config"].get(provider, {})
+    
+    def get_model_pricing(self, provider: str, model_id: str) -> Optional[Dict[str, Any]]:
+        """Get pricing information for a specific model.
+        
+        Returns:
+            Dictionary with pricing info or None if not available
+        """
+        model_info = self.get_model_info(provider, model_id)
+        if model_info and 'pricing' in model_info:
+            return model_info['pricing']
+        return None
 
 
 class LLM:
@@ -113,7 +124,8 @@ class LLM:
         """Prepare parameters for OpenAI models."""
         params = {
             "api_key": os.getenv("OPENAI_API_KEY"),
-            "model": self.model
+            "model": self.model,
+            "stream_usage": True  # Enable token usage tracking by default
         }
         
         if not params["api_key"]:
@@ -335,7 +347,7 @@ class LLM:
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             raise MissingAPIKeyError("OPENAI_API_KEY is not set (required for structure model parsing)")
-        return ChatOpenAI(api_key=api_key, model="gpt-4.1-nano", temperature=0)
+        return ChatOpenAI(api_key=api_key, model="gpt-4.1-nano", temperature=0, stream_usage=True)
         
     def get_structure_model_legacy(self, provider: str):
         """Legacy method for getting provider-specific structure models."""

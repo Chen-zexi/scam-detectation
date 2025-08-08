@@ -6,6 +6,12 @@
         "name": "GPT-5",
         "is_reasoning": true,
         "description": "OpenAI's most advanced reasoning model",
+        "pricing": {
+          "input": 1.25,
+          "cached_input": 0.125,
+          "output": 10.00,
+          "unit": "per_1m_tokens"
+        },
         "parameters": {
           "reasoning_effort": {
             "type": "enum",
@@ -27,6 +33,12 @@
         "name": "GPT-5 Mini",
         "is_reasoning": true,
         "description": "Smaller, faster GPT-5 variant",
+        "pricing": {
+          "input": 0.25,
+          "cached_input": 0.025,
+          "output": 2.00,
+          "unit": "per_1m_tokens"
+        },
         "parameters": {
           "reasoning_effort": {
             "type": "enum",
@@ -48,6 +60,12 @@
         "name": "GPT-5 Nano",
         "is_reasoning": true,
         "description": "Smallest, fastest GPT-5 variant",
+        "pricing": {
+          "input": 0.05,
+          "cached_input": 0.005,
+          "output": 0.40,
+          "unit": "per_1m_tokens"
+        },
         "parameters": {
           "reasoning_effort": {
             "type": "enum",
@@ -69,6 +87,12 @@
         "name": "GPT-4.1",
         "is_reasoning": false,
         "description": "GPT-4.1 model",
+        "pricing": {
+          "input": 2.00,
+          "cached_input": 0.50,
+          "output": 8.00,
+          "unit": "per_1m_tokens"
+        },
         "parameters": {
           "temperature": {
             "type": "float",
@@ -106,6 +130,12 @@
         "name": "GPT-4.1 Mini",
         "is_reasoning": false,
         "description": "Smaller GPT-4.1 variant",
+        "pricing": {
+          "input": 0.40,
+          "cached_input": 0.10,
+          "output": 1.60,
+          "unit": "per_1m_tokens"
+        },
         "parameters": {
           "temperature": {
             "type": "float",
@@ -129,6 +159,12 @@
         "name": "GPT-4.1 Nano",
         "is_reasoning": false,
         "description": "Smallest GPT-4.1 variant",
+        "pricing": {
+          "input": 0.10,
+          "cached_input": 0.025,
+          "output": 0.40,
+          "unit": "per_1m_tokens"
+        },
         "parameters": {
           "temperature": {
             "type": "float",
