@@ -18,12 +18,6 @@
             "options": ["minimal", "low", "medium", "high"],
             "default": "minimal",
             "description": "Controls reasoning depth (minimal for fast responses, high for complex tasks)"
-          },
-          "verbosity": {
-            "type": "enum",
-            "options": ["low", "medium", "high"],
-            "default": "low",
-            "description": "Controls response length and detail"
           }
         },
         "unsupported_parameters": ["temperature", "top_p", "presence_penalty", "frequency_penalty"]
@@ -45,12 +39,6 @@
             "options": ["minimal", "low", "medium", "high"],
             "default": "minimal",
             "description": "Controls reasoning depth"
-          },
-          "verbosity": {
-            "type": "enum",
-            "options": ["low", "medium", "high"],
-            "default": "low",
-            "description": "Controls response length"
           }
         },
         "unsupported_parameters": ["temperature", "top_p", "presence_penalty", "frequency_penalty"]
@@ -72,12 +60,6 @@
             "options": ["minimal", "low", "medium", "high"],
             "default": "minimal",
             "description": "Controls reasoning depth"
-          },
-          "verbosity": {
-            "type": "enum",
-            "options": ["low", "medium", "high"],
-            "default": "low",
-            "description": "Controls response length"
           }
         },
         "unsupported_parameters": ["temperature", "top_p", "presence_penalty", "frequency_penalty"]
@@ -123,7 +105,7 @@
             "description": "Penalizes new tokens based on frequency"
           }
         },
-        "unsupported_parameters": ["reasoning_effort", "verbosity"]
+        "unsupported_parameters": ["reasoning_effort"]
       },
       {
         "id": "gpt-4.1-mini",
@@ -152,7 +134,7 @@
             "description": "Nucleus sampling parameter"
           }
         },
-        "unsupported_parameters": ["reasoning_effort", "verbosity"]
+        "unsupported_parameters": ["reasoning_effort"]
       },
       {
         "id": "gpt-4.1-nano",
@@ -174,7 +156,7 @@
             "description": "Controls randomness in output"
           }
         },
-        "unsupported_parameters": ["reasoning_effort", "verbosity"]
+        "unsupported_parameters": ["reasoning_effort"]
       },
       {
         "id": "gpt-4o",
@@ -197,7 +179,7 @@
             "description": "Nucleus sampling parameter"
           }
         },
-        "unsupported_parameters": ["reasoning_effort", "verbosity"]
+        "unsupported_parameters": ["reasoning_effort"]
       },
       {
         "id": "gpt-4o-mini",
@@ -213,7 +195,7 @@
             "description": "Controls randomness in output"
           }
         },
-        "unsupported_parameters": ["reasoning_effort", "verbosity"]
+        "unsupported_parameters": ["reasoning_effort"]
       },
       {
         "id": "o3",
@@ -289,7 +271,7 @@
             "description": "Nucleus sampling parameter"
           }
         },
-        "unsupported_parameters": ["reasoning_effort", "verbosity", "thinking_budget"]
+        "unsupported_parameters": ["reasoning_effort", "thinking_budget"]
       },
       {
         "id": "claude-opus-4-20250522",
@@ -319,7 +301,7 @@
             "description": "Nucleus sampling parameter"
           }
         },
-        "unsupported_parameters": ["reasoning_effort", "verbosity", "thinking_budget"]
+        "unsupported_parameters": ["reasoning_effort", "thinking_budget"]
       },
       {
         "id": "claude-sonnet-4-20250522",
@@ -349,7 +331,7 @@
             "description": "Nucleus sampling parameter"
           }
         },
-        "unsupported_parameters": ["reasoning_effort", "verbosity", "thinking_budget"]
+        "unsupported_parameters": ["reasoning_effort", "thinking_budget"]
       },
       {
         "id": "claude-3-7-sonnet",
@@ -379,7 +361,7 @@
             "description": "Nucleus sampling parameter"
           }
         },
-        "unsupported_parameters": ["reasoning_effort", "verbosity", "thinking_budget"]
+        "unsupported_parameters": ["reasoning_effort", "thinking_budget"]
       },
       {
         "id": "claude-3-5-haiku-20241022",
@@ -409,7 +391,7 @@
             "description": "Nucleus sampling parameter"
           }
         },
-        "unsupported_parameters": ["reasoning_effort", "verbosity", "thinking_budget"]
+        "unsupported_parameters": ["reasoning_effort", "thinking_budget"]
       }
     ],
     "gemini": [

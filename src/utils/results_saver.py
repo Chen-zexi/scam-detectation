@@ -139,6 +139,14 @@ class ResultsSaver:
                     f"  - Average Output: {token_usage.get('total_output_tokens', 0) / max(token_usage.get('total_calls', 1), 1):.0f}",
                 ])
                 
+                # Add cached tokens if any
+                if token_usage.get('total_cached_tokens', 0) > 0:
+                    report_lines.append(f"- Cached Tokens: {token_usage.get('total_cached_tokens', 0):,}")
+                
+                # Add reasoning tokens if any
+                if token_usage.get('total_reasoning_tokens', 0) > 0:
+                    report_lines.append(f"- Reasoning Tokens: {token_usage.get('total_reasoning_tokens', 0):,}")
+                
                 # Add cost estimate if available
                 if 'estimated_costs' in token_usage:
                     costs = token_usage['estimated_costs']
@@ -153,8 +161,18 @@ class ResultsSaver:
                         "ESTIMATED COST:",
                         f"- Total Cost:     ${total_cost:.4f}",
                         f"- Average/Call:   ${avg_cost:.4f}",
-                        f"- Breakdown:      ${costs.get('input_cost', 0):.4f} (input) + ${costs.get('output_cost', 0):.4f} (output)"
                     ])
+                    
+                    # Build breakdown with cached cost if present
+                    breakdown = f"- Breakdown:      ${costs.get('input_cost', 0):.4f} (input)"
+                    if costs.get('cached_cost', 0) > 0:
+                        breakdown += f" + ${costs.get('cached_cost', 0):.4f} (cached)"
+                    breakdown += f" + ${costs.get('output_cost', 0):.4f} (output)"
+                    report_lines.append(breakdown)
+                    
+                    # Add cache savings if any
+                    if costs.get('cache_savings', 0) > 0:
+                        report_lines.append(f"- Cache Savings:  ${costs.get('cache_savings', 0):.4f}")
         else:
             report_lines.extend([
                 "EVALUATION ERROR:",

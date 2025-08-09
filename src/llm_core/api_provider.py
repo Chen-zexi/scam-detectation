@@ -96,17 +96,19 @@ class LLM:
             cls._model_config = ModelConfig()
         return cls._model_config
     
-    def __init__(self, provider: str, model: str, **kwargs):
+    def __init__(self, provider: str, model: str, use_response_api: bool = False, **kwargs):
         """
         Initializes the LLM factory.
 
         Args:
             provider: The name of the LLM provider (e.g., 'openai', 'lm-studio').
             model: The specific model name to use.
+            use_response_api: Whether to use OpenAI's Response API (output_version="responses/v1")
             **kwargs: Additional parameters to override defaults.
         """
         self.provider = provider
         self.model = model
+        self.use_response_api = use_response_api
         self.model_config = self.get_model_config()
         
         # Get model-specific default parameters
@@ -131,6 +133,13 @@ class LLM:
         if not params["api_key"]:
             raise MissingAPIKeyError("OPENAI_API_KEY environment variable is not set")
         
+        # Handle Response API if requested
+        if self.use_response_api:
+            # Add output_version parameter for Response API
+            params["model_kwargs"] = {
+                "output_version": "responses/v1"
+            }
+        
         # Handle model-specific parameters
         model_info = self.model_config.get_model_info(self.provider, self.model)
         
@@ -144,22 +153,9 @@ class LLM:
                     "effort": self.parameters["reasoning_effort"]
                 }
             
-            # Build the text parameter structure for GPT-5 models
-            if "verbosity" in self.parameters:
-                # Pass text as a direct parameter with nested structure
-                params["text"] = {
-                    "verbosity": self.parameters["verbosity"]
-                }
-            
             # Handle max_completion_tokens for O-series models
             if "max_completion_tokens" in self.parameters:
                 params["max_tokens"] = self.parameters["max_completion_tokens"]
-            
-            # For reasoning models, we might need to use the responses API
-            # Check if this is an O-series model
-            if self.model in ["o3", "o4-mini", "o1-preview", "o1-mini"]:
-                # These models might benefit from the responses API
-                params["use_responses_api"] = True
                 
         else:
             # For standard models, apply normal parameters
@@ -290,28 +286,24 @@ class LLM:
         if self.provider == "openai":
             params = self._prepare_openai_params()
             
-            # For reasoning models, we might need special handling
-            # Extract reasoning and text params if they exist
+            # Extract special parameters that need to go in model_kwargs
             reasoning_param = params.pop("reasoning", None)
-            text_param = params.pop("text", None)
-            use_responses_api = params.pop("use_responses_api", False)
+            existing_model_kwargs = params.pop("model_kwargs", {})
             
-            # Create the ChatOpenAI instance
-            llm = ChatOpenAI(**params)
-            
-            # If we have reasoning or text params, we need to bind them
-            # This is a workaround since ChatOpenAI might not directly support these yet
-            if reasoning_param or text_param:
-                extra_kwargs = {}
+            # Combine model_kwargs if we have reasoning params or Response API
+            if reasoning_param or existing_model_kwargs:
+                combined_model_kwargs = existing_model_kwargs.copy()
                 if reasoning_param:
-                    extra_kwargs["reasoning"] = reasoning_param
-                if text_param:
-                    extra_kwargs["text"] = text_param
-                # Use model_kwargs for now until LangChain updates support
+                    combined_model_kwargs["reasoning"] = reasoning_param
+                
+                # Use model_kwargs for special parameters
                 # Suppress the warning about parameters in model_kwargs
                 with warnings.catch_warnings():
                     warnings.filterwarnings("ignore", message="Parameters .* should be specified explicitly")
-                    llm = ChatOpenAI(**params, model_kwargs=extra_kwargs)
+                    llm = ChatOpenAI(**params, model_kwargs=combined_model_kwargs)
+            else:
+                # Standard case without special parameters
+                llm = ChatOpenAI(**params)
             
             return llm
             
@@ -342,12 +334,19 @@ class LLM:
             raise InvalidProviderError(f"Unsupported provider: {self.provider}. Supported: openai, anthropic, gemini, lm-studio, vllm")
         
     def get_structure_model(self, provider: str = None):
-        """Get a model for structure parsing. Defaults to OpenAI gpt-4.1-nano."""
+        """Get a model for structure parsing. Defaults to OpenAI gpt-4.1-nano with Response API."""
         # Always use OpenAI gpt-4.1-nano for structure parsing by default
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             raise MissingAPIKeyError("OPENAI_API_KEY is not set (required for structure model parsing)")
-        return ChatOpenAI(api_key=api_key, model="gpt-4.1-nano", temperature=0, stream_usage=True)
+        # Use Response API for better performance
+        return ChatOpenAI(
+            api_key=api_key, 
+            model="gpt-4.1-nano", 
+            temperature=0, 
+            stream_usage=True,
+            model_kwargs={"output_version": "responses/v1"}
+        )
         
     def get_structure_model_legacy(self, provider: str):
         """Legacy method for getting provider-specific structure models."""

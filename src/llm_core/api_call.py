@@ -34,11 +34,11 @@ def extract_token_usage(response: Any) -> Dict[str, Any]:
         response: Response object from LangChain
         
     Returns:
-        Dictionary containing token usage information
+        Dictionary containing comprehensive token usage information
     """
     token_info = {}
     
-    # Try to get usage_metadata (primary source)
+    # Try to get usage_metadata (primary source for Response API)
     if hasattr(response, 'usage_metadata'):
         usage = response.usage_metadata
         if isinstance(usage, dict):
@@ -46,13 +46,23 @@ def extract_token_usage(response: Any) -> Dict[str, Any]:
             token_info['output_tokens'] = usage.get('output_tokens', 0)
             token_info['total_tokens'] = usage.get('total_tokens', 0)
             
-            # Check for reasoning tokens in output details
+            # Extract cached tokens from input_token_details (Response API format)
+            if 'input_token_details' in usage:
+                details = usage['input_token_details']
+                if 'cache_read' in details:
+                    token_info['cached_tokens'] = details.get('cache_read', 0)
+                if 'audio' in details:
+                    token_info['audio_input_tokens'] = details.get('audio', 0)
+            
+            # Extract output token details
             if 'output_token_details' in usage:
                 details = usage['output_token_details']
                 if 'reasoning' in details:
-                    token_info['reasoning_tokens'] = details['reasoning']
+                    token_info['reasoning_tokens'] = details.get('reasoning', 0)
+                if 'audio' in details:
+                    token_info['audio_output_tokens'] = details.get('audio', 0)
     
-    # Also check response_metadata for additional details
+    # Also check response_metadata for additional details (Standard API)
     if hasattr(response, 'response_metadata'):
         metadata = response.response_metadata
         if isinstance(metadata, dict) and 'token_usage' in metadata:
@@ -64,11 +74,26 @@ def extract_token_usage(response: Any) -> Dict[str, Any]:
                 token_info['output_tokens'] = token_usage.get('completion_tokens', 0)
                 token_info['total_tokens'] = token_usage.get('total_tokens', 0)
             
-            # Check for reasoning tokens in completion details
+            # Extract prompt token details (Standard API format)
+            if 'prompt_tokens_details' in token_usage:
+                details = token_usage['prompt_tokens_details']
+                if 'cached_tokens' in details:
+                    # Prefer this over cache_read if both exist
+                    token_info['cached_tokens'] = details.get('cached_tokens', 0)
+                if 'audio_tokens' in details:
+                    token_info['audio_input_tokens'] = details.get('audio_tokens', 0)
+            
+            # Extract completion token details (Standard API format)
             if 'completion_tokens_details' in token_usage:
                 details = token_usage['completion_tokens_details']
                 if 'reasoning_tokens' in details:
-                    token_info['reasoning_tokens'] = details['reasoning_tokens']
+                    token_info['reasoning_tokens'] = details.get('reasoning_tokens', 0)
+                if 'accepted_prediction_tokens' in details:
+                    token_info['accepted_prediction_tokens'] = details.get('accepted_prediction_tokens', 0)
+                if 'rejected_prediction_tokens' in details:
+                    token_info['rejected_prediction_tokens'] = details.get('rejected_prediction_tokens', 0)
+                if 'audio_tokens' in details:
+                    token_info['audio_output_tokens'] = details.get('audio_tokens', 0)
     
     return token_info
 
@@ -177,7 +202,7 @@ def make_api_call(
             else:
                 # Auto-create structure model using gpt-4.1-nano
                 from .api_provider import LLM
-                temp_llm_instance = LLM(provider="openai", model="gpt-4.1-nano")
+                temp_llm_instance = LLM(provider="openai", model="gpt-4.1-nano", use_response_api=True)
                 auto_structure_model = temp_llm_instance.get_structure_model()
                 parsed = parse_structured_output(auto_structure_model, content, response_schema)
             
@@ -233,7 +258,7 @@ def make_api_call(
             else:
                 # Auto-create structure model using gpt-4.1-nano as fallback
                 from .api_provider import LLM
-                temp_llm_instance = LLM(provider="openai", model="gpt-4.1-nano")
+                temp_llm_instance = LLM(provider="openai", model="gpt-4.1-nano", use_response_api=True)
                 auto_structure_model = temp_llm_instance.get_structure_model()
                 parsed = parse_structured_output(auto_structure_model, content, response_schema)
             
@@ -320,7 +345,7 @@ async def make_api_call_async(
             else:
                 # Auto-create structure model using gpt-4.1-nano
                 from .api_provider import LLM
-                temp_llm_instance = LLM(provider="openai", model="gpt-4.1-nano")
+                temp_llm_instance = LLM(provider="openai", model="gpt-4.1-nano", use_response_api=True)
                 auto_structure_model = temp_llm_instance.get_structure_model()
                 parsed = await parse_structured_output_async(auto_structure_model, content, response_schema)
             
@@ -376,7 +401,7 @@ async def make_api_call_async(
             else:
                 # Auto-create structure model using gpt-4.1-nano as fallback
                 from .api_provider import LLM
-                temp_llm_instance = LLM(provider="openai", model="gpt-4.1-nano")
+                temp_llm_instance = LLM(provider="openai", model="gpt-4.1-nano", use_response_api=True)
                 auto_structure_model = temp_llm_instance.get_structure_model()
                 parsed = await parse_structured_output_async(auto_structure_model, content, response_schema)
             

@@ -49,7 +49,7 @@ class ModelConfigManager:
                 model_config['parameters'] = llm_instance.parameters
                 
                 # Extract specific parameter values for easy access
-                for param in ['reasoning_effort', 'verbosity', 'temperature', 
+                for param in ['reasoning_effort', 'temperature', 
                              'max_completion_tokens', 'top_p', 'presence_penalty',
                              'frequency_penalty', 'max_tokens', 'thinking_budget', 'thinking']:
                     if param in llm_instance.parameters:
@@ -100,7 +100,6 @@ class ModelConfigManager:
         lines.append("\nActive Parameters:")
         param_mapping = {
             'reasoning_effort': 'Reasoning Effort',
-            'verbosity': 'Verbosity',
             'temperature': 'Temperature',
             'max_completion_tokens': 'Max Completion Tokens',
             'top_p': 'Top-p',
@@ -143,7 +142,6 @@ class ModelConfigManager:
         # Add parameter values with safe defaults
         param_fields = {
             'reasoning_effort': 'N/A',
-            'verbosity': 'N/A',
             'temperature': 'N/A',
             'max_completion_tokens': 'N/A',
             'top_p': 'N/A',
@@ -189,7 +187,7 @@ class ModelConfigManager:
         }
         
         # Add active parameters
-        param_keys = ['reasoning_effort', 'verbosity', 'temperature', 
+        param_keys = ['reasoning_effort', 'temperature', 
                      'max_completion_tokens', 'top_p', 'presence_penalty',
                      'frequency_penalty', 'max_tokens', 'thinking_budget', 'thinking']
         
@@ -225,8 +223,6 @@ class ModelConfigManager:
         if model_config.get('is_reasoning'):
             if 'reasoning_effort' in model_config:
                 parts.append(f"effort={model_config['reasoning_effort']}")
-            if 'verbosity' in model_config:
-                parts.append(f"verbosity={model_config['verbosity']}")
             if 'thinking_budget' in model_config:
                 parts.append(f"thinking_budget={model_config['thinking_budget']}")
         else:

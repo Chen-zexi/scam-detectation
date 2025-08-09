@@ -83,15 +83,23 @@ class ScamDetectionEvaluator:
     def setup_llm(self):
         """Initialize the LLM"""
         try:
+            # Use Response API by default for OpenAI models
+            use_response_api = (self.provider == "openai")
+            
             # Pass model parameters to LLM instance
-            self.llm_instance = LLM(provider=self.provider, model=self.model, **self.model_parameters)
+            self.llm_instance = LLM(
+                provider=self.provider, 
+                model=self.model, 
+                use_response_api=use_response_api,
+                **self.model_parameters
+            )
             self.llm = self.llm_instance.get_llm()
             if self.use_structure_model:
                 self.structure_model = self.llm_instance.get_structure_model()  # Uses gpt-4.1-nano by default
             print(f"LLM initialized successfully: {self.provider} - {self.model}")
             # Print configured parameters if any
             if self.model_parameters:
-                param_keys = [k for k in self.model_parameters.keys() if k in ['reasoning_effort', 'verbosity']]
+                param_keys = [k for k in self.model_parameters.keys() if k in ['reasoning_effort']]
                 if param_keys:
                     print(f"Model parameters: {', '.join([f'{k}={self.model_parameters[k]}' for k in param_keys])}")
         except Exception as e:
@@ -350,10 +358,16 @@ class ScamDetectionEvaluator:
             result['token_usage'] = {
                 'input_tokens': token_info.get('input_tokens', 0),
                 'output_tokens': token_info.get('output_tokens', 0),
-                'total_tokens': token_info.get('total_tokens', 0)
+                'total_tokens': token_info.get('total_tokens', 0),
+                'reasoning_tokens': token_info.get('reasoning_tokens', 0)
             }
-            if 'reasoning_tokens' in token_info:
-                result['token_usage']['reasoning_tokens'] = token_info['reasoning_tokens']
+            # Add enhanced token fields if present
+            if token_info.get('cached_tokens', 0) > 0:
+                result['token_usage']['cached_tokens'] = token_info['cached_tokens']
+            if token_info.get('accepted_prediction_tokens', 0) > 0:
+                result['token_usage']['accepted_prediction_tokens'] = token_info['accepted_prediction_tokens']
+            if token_info.get('rejected_prediction_tokens', 0) > 0:
+                result['token_usage']['rejected_prediction_tokens'] = token_info['rejected_prediction_tokens']
         
         # Add id column if it exists
         if 'id' in row:

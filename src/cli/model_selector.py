@@ -194,35 +194,6 @@ class ModelSelector:
                             print(f"Please enter a number between 1 and {len(options)}")
                     except ValueError:
                         print("Please enter a valid number or press Enter for default")
-            
-            # Configure verbosity if available (for GPT-5 models)
-            if "verbosity" in model_info.get("parameters", {}):
-                param_info = model_info["parameters"]["verbosity"]
-                options = param_info.get("options", [])
-                default = param_info.get("default", options[0] if options else "medium")
-                
-                print(f"\nVerbosity:")
-                print(f"Controls response length and detail")
-                for i, option in enumerate(options, 1):
-                    default_marker = " (default)" if option == default else ""
-                    print(f"  {i}. {option.capitalize()}{default_marker}")
-                
-                while True:
-                    choice = input(f"\nSelect (1-{len(options)}) or press Enter for default [{default}]: ").strip()
-                    if not choice:  # User pressed Enter
-                        parameters['verbosity'] = default
-                        print(f"Using default: {default}")
-                        break
-                    try:
-                        choice_num = int(choice)
-                        if 1 <= choice_num <= len(options):
-                            parameters['verbosity'] = options[choice_num - 1]
-                            print(f"Selected: {parameters['verbosity']}")
-                            break
-                        else:
-                            print(f"Please enter a number between 1 and {len(options)}")
-                    except ValueError:
-                        print("Please enter a valid number or press Enter for default")
         
         # Configure task settings for local providers (LM-Studio, vLLM)
         if provider in ["lm-studio", "vllm"]:

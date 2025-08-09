@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class TokenUsageRecord:
-    """Single token usage record."""
+    """Single token usage record with comprehensive token tracking."""
     timestamp: datetime
     model: str
     operation: str
@@ -19,6 +19,11 @@ class TokenUsageRecord:
     output_tokens: int
     total_tokens: int
     reasoning_tokens: Optional[int] = None
+    cached_tokens: Optional[int] = None
+    accepted_prediction_tokens: Optional[int] = None
+    rejected_prediction_tokens: Optional[int] = None
+    audio_input_tokens: Optional[int] = None
+    audio_output_tokens: Optional[int] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -63,6 +68,11 @@ class TokenUsageTracker:
             output_tokens=token_info.get('output_tokens', 0),
             total_tokens=token_info.get('total_tokens', 0),
             reasoning_tokens=token_info.get('reasoning_tokens'),
+            cached_tokens=token_info.get('cached_tokens'),
+            accepted_prediction_tokens=token_info.get('accepted_prediction_tokens'),
+            rejected_prediction_tokens=token_info.get('rejected_prediction_tokens'),
+            audio_input_tokens=token_info.get('audio_input_tokens'),
+            audio_output_tokens=token_info.get('audio_output_tokens'),
             metadata=metadata or {}
         )
         
@@ -86,6 +96,7 @@ class TokenUsageTracker:
                 'output_tokens': 0,
                 'total_tokens': 0,
                 'reasoning_tokens': 0,
+                'cached_tokens': 0,
                 'call_count': 0
             }
         
@@ -94,6 +105,8 @@ class TokenUsageTracker:
         self.model_totals[record.model]['total_tokens'] += record.total_tokens
         if record.reasoning_tokens:
             self.model_totals[record.model]['reasoning_tokens'] += record.reasoning_tokens
+        if record.cached_tokens:
+            self.model_totals[record.model]['cached_tokens'] += record.cached_tokens
         self.model_totals[record.model]['call_count'] += 1
         
         # Update operation totals
@@ -103,6 +116,7 @@ class TokenUsageTracker:
                 'output_tokens': 0,
                 'total_tokens': 0,
                 'reasoning_tokens': 0,
+                'cached_tokens': 0,
                 'call_count': 0
             }
         
@@ -111,6 +125,8 @@ class TokenUsageTracker:
         self.operation_totals[record.operation]['total_tokens'] += record.total_tokens
         if record.reasoning_tokens:
             self.operation_totals[record.operation]['reasoning_tokens'] += record.reasoning_tokens
+        if record.cached_tokens:
+            self.operation_totals[record.operation]['cached_tokens'] += record.cached_tokens
         self.operation_totals[record.operation]['call_count'] += 1
     
     def get_summary(self, include_details: bool = False) -> Dict[str, Any]:
@@ -126,6 +142,9 @@ class TokenUsageTracker:
         total_output = sum(r.output_tokens for r in self.records)
         total_tokens = sum(r.total_tokens for r in self.records)
         total_reasoning = sum(r.reasoning_tokens for r in self.records if r.reasoning_tokens)
+        total_cached = sum(r.cached_tokens for r in self.records if r.cached_tokens)
+        total_accepted_pred = sum(r.accepted_prediction_tokens for r in self.records if r.accepted_prediction_tokens)
+        total_rejected_pred = sum(r.rejected_prediction_tokens for r in self.records if r.rejected_prediction_tokens)
         
         session_duration = (datetime.now() - self.session_start).total_seconds()
         
@@ -136,8 +155,15 @@ class TokenUsageTracker:
             'total_output_tokens': total_output,
             'total_tokens': total_tokens,
             'total_reasoning_tokens': total_reasoning,
+            'total_cached_tokens': total_cached,
             'average_tokens_per_call': total_tokens / len(self.records) if self.records else 0
         }
+        
+        # Add prediction tokens if any were used
+        if total_accepted_pred > 0:
+            summary['total_accepted_prediction_tokens'] = total_accepted_pred
+        if total_rejected_pred > 0:
+            summary['total_rejected_prediction_tokens'] = total_rejected_pred
         
         # Only include detailed breakdowns if requested
         if include_details:
@@ -165,9 +191,15 @@ class TokenUsageTracker:
             
             print(f"\nTotal Token Usage:")
             print(f"  Total Input:      {summary['total_input_tokens']:,}")
+            if summary.get('total_cached_tokens', 0) > 0:
+                print(f"    - Cached:       {summary['total_cached_tokens']:,}")
+                print(f"    - Regular:      {summary['total_input_tokens'] - summary['total_cached_tokens']:,}")
+            else:
+                # Always show cached status even if 0
+                print(f"    - Cached:       0")
             print(f"  Total Output:     {summary['total_output_tokens']:,}")
             print(f"  Total Combined:   {summary['total_tokens']:,}")
-            if summary['total_reasoning_tokens'] > 0:
+            if summary.get('total_reasoning_tokens', 0) > 0:
                 print(f"  Total Reasoning:  {summary['total_reasoning_tokens']:,}")
             
             print(f"\nAverage per Call:")
@@ -253,23 +285,72 @@ class TokenUsageTracker:
             }
         
         total_input_cost = 0.0
+        total_cached_cost = 0.0
         total_output_cost = 0.0
         
         for model, stats in self.model_totals.items():
             if model in pricing:
-                input_cost = (stats['input_tokens'] / 1000) * pricing[model]['input']
+                # Calculate regular input cost (non-cached tokens)
+                cached_tokens = stats.get('cached_tokens', 0)
+                regular_input_tokens = stats['input_tokens'] - cached_tokens
+                
+                # Regular input cost
+                input_cost = (regular_input_tokens / 1000) * pricing[model]['input']
+                
+                # Cached input cost (if pricing available)
+                cached_input_cost = 0.0
+                if cached_tokens > 0:
+                    # Try to get cached pricing from config
+                    try:
+                        from .api_provider import ModelConfig
+                        config = ModelConfig()
+                        model_info = None
+                        for provider in ['openai', 'anthropic', 'gemini']:
+                            model_info = config.get_model_info(provider, model)
+                            if model_info and 'pricing' in model_info:
+                                break
+                        
+                        if model_info and 'cached_input' in model_info['pricing']:
+                            # Use cached_input pricing from config (per 1M tokens)
+                            cached_rate = model_info['pricing']['cached_input'] / 1000  # Convert to per 1K
+                            cached_input_cost = (cached_tokens / 1000) * cached_rate
+                        else:
+                            # Fallback: assume cached is 25% of regular price
+                            cached_input_cost = (cached_tokens / 1000) * (pricing[model]['input'] * 0.25)
+                    except:
+                        # Fallback if config not available
+                        cached_input_cost = (cached_tokens / 1000) * (pricing[model]['input'] * 0.25)
+                
+                # Output cost
                 output_cost = (stats['output_tokens'] / 1000) * pricing[model]['output']
+                
                 total_input_cost += input_cost
+                total_cached_cost += cached_input_cost
                 total_output_cost += output_cost
         
-        total_cost = total_input_cost + total_output_cost
+        total_cost = total_input_cost + total_cached_cost + total_output_cost
         
-        # Return simplified cost structure
-        return {
+        # Return detailed cost structure
+        result = {
             'total_cost': total_cost,
             'input_cost': total_input_cost,
             'output_cost': total_output_cost
         }
+        
+        # Add cached cost if any
+        if total_cached_cost > 0:
+            result['cached_cost'] = total_cached_cost
+            # Calculate savings: what would have been paid without caching
+            total_cached_tokens = sum(self.model_totals[m].get('cached_tokens', 0) for m in self.model_totals)
+            if total_cached_tokens > 0:
+                # Calculate what the cached tokens would have cost at full price
+                full_price_cost = 0
+                for model, stats in self.model_totals.items():
+                    if model in pricing and stats.get('cached_tokens', 0) > 0:
+                        full_price_cost += (stats['cached_tokens'] / 1000) * pricing[model]['input']
+                result['cache_savings'] = full_price_cost - total_cached_cost
+        
+        return result
     
     def print_cost_estimate(self, pricing: Optional[Dict[str, Dict[str, float]]] = None) -> None:
         """Print estimated costs.
@@ -290,7 +371,17 @@ class TokenUsageTracker:
             
             print(f"\nTotal Cost:     ${costs['total_cost']:.4f}")
             print(f"Average/Call:   ${avg_cost:.4f}")
-            print(f"Breakdown:      ${costs['input_cost']:.4f} (input) + ${costs['output_cost']:.4f} (output)")
+            
+            # Build breakdown with cached cost if present
+            breakdown = f"Breakdown:      ${costs['input_cost']:.4f} (input)"
+            if costs.get('cached_cost', 0) > 0:
+                breakdown += f" + ${costs['cached_cost']:.4f} (cached)"
+            breakdown += f" + ${costs['output_cost']:.4f} (output)"
+            print(breakdown)
+            
+            # Show cache savings if any
+            if costs.get('cache_savings', 0) > 0:
+                print(f"Cache Savings:  ${costs['cache_savings']:.4f}")
             
             print("="*60)
 

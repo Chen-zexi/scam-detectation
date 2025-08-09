@@ -159,8 +159,16 @@ class LLMAnnotationPipeline:
     def setup_llm(self):
         """Initialize the LLM"""
         try:
+            # Use Response API by default for OpenAI models
+            use_response_api = (self.provider == "openai")
+            
             # Pass model parameters to LLM instance
-            self.llm_instance = LLM(provider=self.provider, model=self.model, **self.model_parameters)
+            self.llm_instance = LLM(
+                provider=self.provider, 
+                model=self.model, 
+                use_response_api=use_response_api,
+                **self.model_parameters
+            )
             self.llm = self.llm_instance.get_llm()
             if self.use_structure_model:
                 self.structure_model = self.llm_instance.get_structure_model()  # Uses gpt-4.1-nano by default
