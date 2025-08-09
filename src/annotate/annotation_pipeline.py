@@ -24,6 +24,7 @@ from tqdm import tqdm
 
 from src.llm_core.api_provider import LLM
 from src.llm_core.api_call import make_api_call, parse_structured_output
+from src.llm_core.token_counter import TokenUsageTracker
 from src.utils.data_loader import DatasetLoader
 from src.utils.results_saver import ResultsSaver
 from src.utils.model_config_manager import ModelConfigManager
@@ -149,6 +150,9 @@ class LLMAnnotationPipeline:
         self.start_time = None
         self.last_checkpoint_message = None
         
+        # Token tracking (silent by default)
+        self.token_tracker = TokenUsageTracker(verbose=False)
+        
     def setup_llm(self):
         """Initialize the LLM"""
         try:
@@ -176,6 +180,36 @@ class LLMAnnotationPipeline:
             sample_size=self.sample_size,
             balanced_sample=self.balanced_sample
         )
+    
+    def get_token_usage_summary(self, include_details: bool = False) -> Optional[Dict[str, Any]]:
+        """
+        Get a summary of token usage across all API calls.
+        
+        Args:
+            include_details: If True, includes detailed breakdown by model
+        
+        Returns:
+            Dictionary with token usage summary or None if no usage tracked
+        """
+        if not self.token_tracker.records:
+            return None
+        
+        summary = self.token_tracker.get_summary(include_details=include_details)
+        
+        # Add cost estimation
+        costs = self.token_tracker.estimate_cost()
+        if costs:
+            summary['estimated_costs'] = costs
+        
+        return summary
+    
+    def print_token_summary(self) -> None:
+        """Print token usage summary to console."""
+        if self.token_tracker.records:
+            self.token_tracker.print_summary()
+            self.token_tracker.print_cost_estimate()
+        else:
+            print("No token usage data available.")
     
     def load_and_prepare_data(self) -> pd.DataFrame:
         """Load dataset and prepare sample for annotation"""
@@ -233,7 +267,7 @@ class LLMAnnotationPipeline:
         system_prompt = self.prompt_generator.get_system_prompt()
         
         print("\n" + "="*80)
-        print("STARTING LLM ANNOTATION PROCESS (ASYNC)")
+        print("STARTING LLM ANNOTATION PROCESS")
         print(f"Concurrent requests: {concurrent_requests}")
         print("="*80)
         
@@ -241,7 +275,7 @@ class LLMAnnotationPipeline:
         semaphore = asyncio.Semaphore(concurrent_requests)
         
         # Create progress bar for async processing
-        pbar = tqdm(total=len(sample_df), desc="Annotating (async)")
+        pbar = tqdm(total=len(sample_df), desc="Annotating")
         
         async def annotate_single_record(i: int, row: pd.Series) -> Dict[str, Any]:
             async with semaphore:
@@ -249,13 +283,17 @@ class LLMAnnotationPipeline:
                 user_prompt = self.prompt_generator.create_annotation_prompt(row.to_dict(), str(row['label']))
                 
                 try:
-                    # Use generic async API call with AnnotationResponseSchema
-                    response = await make_api_call(
+                    # Use generic async API call with AnnotationResponseSchema and token tracking
+                    response, token_info = await make_api_call(
                         self.llm, 
                         system_prompt, 
                         user_prompt, 
-                        response_schema=AnnotationResponseSchema
+                        response_schema=AnnotationResponseSchema,
+                        return_token_usage=True
                     )
+                    
+                    # Add to token tracker
+                    self.token_tracker.add_usage(token_info, self.model, f"annotation_{i+1}")
                     
                     # Create comprehensive annotation record
                     annotation = self._create_annotation_record(i+1, row, response)
@@ -300,7 +338,7 @@ class LLMAnnotationPipeline:
         
         self.annotations = valid_annotations
         total_time = end_time - start_time
-        print(f"\nAsync annotation completed in {total_time:.2f} seconds. Processed {len(valid_annotations)} records.")
+        print(f"\nAnnotation completed in {total_time:.2f} seconds. Processed {len(valid_annotations)} records.")
         print(f"Average time per record: {total_time/len(valid_annotations):.2f} seconds")
         return valid_annotations
     
@@ -459,6 +497,16 @@ class LLMAnnotationPipeline:
             }
         }
         
+        # Add token usage if available
+        token_summary = self.get_token_usage_summary()
+        if token_summary:
+            summary['token_usage'] = token_summary
+        
+        # Add cost estimation
+        costs = self.token_tracker.estimate_cost()
+        if costs:
+            summary['estimated_costs'] = costs
+        
         # Save summary
         import json
         summary_path = results_dir / "annotation_summary.json"
@@ -473,12 +521,16 @@ class LLMAnnotationPipeline:
         print(f"- Not usable records: {usability_dist.get('Not usable', 0)}")
         print(f"- Usability rate: {usability_dist.get('Usable', 0) / total_annotations:.2%}" if total_annotations > 0 else "- Usability rate: 0%")
         
+        # Print token usage summary if available
+        if token_summary:
+            self.print_token_summary()
+        
         return summary_path
     
 
     async def run_full_annotation(self, concurrent_requests: int = 10) -> Dict[str, Any]:
-        """Run the complete annotation pipeline asynchronously"""
-        print("Starting LLM Annotation Pipeline (Async)...")
+        """Run the complete annotation pipeline"""
+        print("Starting LLM Annotation Pipeline...")
         
         # Setup LLM
         self.setup_llm()
@@ -486,7 +538,7 @@ class LLMAnnotationPipeline:
         # Load and prepare data
         sample_df = self.load_and_prepare_data()
         
-        # Run annotation asynchronously
+        # Run annotation
         annotations = await self.annotate_sample(sample_df, concurrent_requests)
         
         # Save results
@@ -502,7 +554,8 @@ class LLMAnnotationPipeline:
                 'success_rate': len([a for a in annotations if a['confidence'] != 'error']) / len(annotations) if annotations else 0,
                 'usability_rate': len([a for a in annotations if a.get('usability', True)]) / len(annotations) if annotations else 0,
                 'dataset_name': self.data_loader.dataset_name
-            }
+            },
+            'token_usage': self.get_token_usage_summary()
         }
     
     # ==================== CHECKPOINT FUNCTIONALITY ====================
@@ -636,7 +689,7 @@ class LLMAnnotationPipeline:
             Dictionary with annotation results and file paths
         """
         print("="*80)
-        print("ASYNC ANNOTATION PIPELINE WITH CHUNKED BATCHING")
+        print("ANNOTATION PIPELINE WITH CHUNKED BATCHING")
         print(f"Concurrent requests: {concurrent_requests}")
         print("="*80)
         
@@ -747,7 +800,7 @@ class LLMAnnotationPipeline:
         total_processed = len(self.annotations)
         
         print(f"\n{'='*80}")
-        print("CHUNKED ASYNC ANNOTATION COMPLETED")
+        print("CHUNKED ANNOTATION COMPLETED")
         print(f"{'='*80}")
         print(f"Total records processed: {total_processed:,}")
         print(f"Total time: {total_time:.2f} seconds")
@@ -765,18 +818,22 @@ class LLMAnnotationPipeline:
         }
     
     async def _annotate_single_record(self, index: int, row: pd.Series) -> Dict[str, Any]:
-        """Annotate a single record asynchronously"""
+        """Annotate a single record"""
         try:
             system_prompt = self.prompt_generator.get_system_prompt()
             user_prompt = self.prompt_generator.create_annotation_prompt(row.to_dict(), str(row['label']))
             
-            # Use generic async API call
-            response = await make_api_call(
+            # Use generic API call with token tracking
+            response, token_info = await make_api_call(
                 self.llm, 
                 system_prompt, 
                 user_prompt,
-                response_schema=AnnotationResponseSchema
+                response_schema=AnnotationResponseSchema,
+                return_token_usage=True
             )
+            
+            # Add to token tracker
+            self.token_tracker.add_usage(token_info, self.model, f"annotation_{index}")
             
             return self._create_annotation_record(index, row, response)
             
@@ -790,7 +847,7 @@ class LLMAnnotationPipeline:
                                                          concurrent_requests: int = 10,
                                                          override_compatibility: bool = False) -> Dict[str, Any]:
         """
-        Process the entire dataset with asynchronous overlapping batches
+        Process the entire dataset with overlapping batches
         
         This method starts new requests as soon as slots become available rather than 
         waiting for entire chunks to complete, eliminating convoy effects from slow requests.
@@ -806,7 +863,7 @@ class LLMAnnotationPipeline:
             Dictionary with annotation results and file paths
         """
         print("="*80)
-        print("ASYNC ANNOTATION PIPELINE WITH OVERLAPPING BATCHES")
+        print("ANNOTATION PIPELINE WITH OVERLAPPING BATCHES")
         print(f"Concurrent requests: {concurrent_requests}")
         print("="*80)
         
@@ -1037,7 +1094,7 @@ class LLMAnnotationPipeline:
         save_paths = self.save_annotations()
         
         print(f"\n{'='*80}")
-        print("ASYNC ANNOTATION COMPLETED")
+        print("ANNOTATION COMPLETED")
         print(f"{'='*80}")
         print(f"Total records completed: {len(self.annotations):,}")
         print(f"Session processing rate: {final_rate:.2f} records/second")

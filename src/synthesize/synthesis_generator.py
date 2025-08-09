@@ -20,6 +20,7 @@ from pydantic import BaseModel
 
 from src.llm_core.api_provider import LLM
 from src.llm_core.api_call import make_api_call
+from src.llm_core.token_counter import TokenUsageTracker
 from src.synthesize.schema_builder import SchemaBuilder
 from src.synthesize.synthesis_prompts import SynthesisPromptsManager
 from src.database import get_scam_data_service
@@ -85,6 +86,9 @@ class SynthesisGenerator:
         # Initialize LLM
         self.llm = None
         
+        # Token tracking (silent by default)
+        self.token_tracker = TokenUsageTracker(verbose=False)
+        
         # Checkpoint state
         self.generated_items = []
         self.current_index = 0
@@ -147,12 +151,13 @@ Ensure all fields are included in your response."""
         """Create a generation prompt for a specific category."""
         return self.prompts_manager.create_generation_prompt(self.synthesis_type, category)
     
-    async def generate_single_item(self, category: str) -> Dict[str, Any]:
+    async def generate_single_item(self, category: str, item_index: int = 0) -> Dict[str, Any]:
         """
         Generate a single item for the specified category.
         
         Args:
             category: Category identifier
+            item_index: Index of the item being generated (for token tracking)
             
         Returns:
             Dictionary with generation result
@@ -162,13 +167,17 @@ Ensure all fields are included in your response."""
             system_prompt = self.get_system_prompt()
             user_prompt = self.create_generation_prompt(category)
             
-            # Make API call
-            response_obj = await make_api_call(
+            # Make API call with token usage tracking
+            response_obj, token_info = await make_api_call(
                 self.llm,
                 system_prompt,
                 user_prompt,
-                response_schema=self.response_model
+                response_schema=self.response_model,
+                return_token_usage=True
             )
+            
+            # Add to token tracker
+            self.token_tracker.add_usage(token_info, self.model, f"synthesis_{item_index}")
             
             return {
                 'success': True,
@@ -205,7 +214,7 @@ Ensure all fields are included in your response."""
         
         async def process_with_semaphore(category, index):
             async with semaphore:
-                result = await self.generate_single_item(category)
+                result = await self.generate_single_item(category, index)
                 result['index'] = index
                 return result
         
@@ -375,6 +384,9 @@ Ensure all fields are included in your response."""
         # Get model configuration
         model_config = self.get_model_config() if hasattr(self, 'llm_instance') else {}
         
+        # Get token usage summary
+        token_summary = self.token_tracker.get_summary()
+        
         stats = {
             'synthesis_type': self.synthesis_type,
             'synthesis_name': type_info.get('name', self.synthesis_type),
@@ -388,8 +400,14 @@ Ensure all fields are included in your response."""
             'generation_timestamp': datetime.now().strftime("%Y%m%d_%H%M%S"),
             'config': {
                 'category': self.category
-            }
+            },
+            'token_usage': token_summary
         }
+        
+        # Add cost estimation
+        costs = self.token_tracker.estimate_cost()
+        if costs:
+            stats['estimated_costs'] = costs
         
         # Add distribution statistics if we have a dataframe
         if detailed_df is not None and not detailed_df.empty:
@@ -428,6 +446,26 @@ Ensure all fields are included in your response."""
             
             f.write(f"\nGeneration completed: {summary_stats['generation_timestamp']}\n")
             f.write(f"Model: {self.provider} - {self.model}\n")
+            
+            # Add token usage if available
+            if 'token_usage' in summary_stats and summary_stats['token_usage']:
+                token_usage = summary_stats['token_usage']
+                f.write(f"\nToken Usage:\n")
+                f.write(f"  Total input tokens: {token_usage.get('total_input_tokens', 0):,}\n")
+                f.write(f"  Total output tokens: {token_usage.get('total_output_tokens', 0):,}\n")
+                f.write(f"  Total tokens: {token_usage.get('total_tokens', 0):,}\n")
+                if token_usage.get('total_cached_tokens', 0) > 0:
+                    f.write(f"  Cached tokens: {token_usage['total_cached_tokens']:,}\n")
+            
+            # Add estimated costs if available
+            if 'estimated_costs' in summary_stats and summary_stats['estimated_costs']:
+                costs = summary_stats['estimated_costs']
+                f.write(f"\nEstimated Costs:\n")
+                f.write(f"  Input cost: ${costs.get('input_cost', 0):.4f}\n")
+                f.write(f"  Output cost: ${costs.get('output_cost', 0):.4f}\n")
+                if costs.get('cached_cost', 0) > 0:
+                    f.write(f"  Cached cost: ${costs['cached_cost']:.4f}\n")
+                f.write(f"  Total cost: ${costs.get('total_cost', 0):.4f}\n")
     
     def _save_to_mongodb(self, successful_results: List[Dict]) -> Dict[str, Any]:
         """Save results to MongoDB."""
@@ -667,12 +705,31 @@ Ensure all fields are included in your response."""
         # Save final results
         save_results = self.save_results(all_results)
         
+        # Print token usage summary
+        self.print_token_summary()
+        
         return {
             'status': 'completed',
             'results': save_results,
             'total_generated': len(all_results),
             'checkpoint_file': self.checkpoint_file
         }
+    
+    def get_token_usage_summary(self, include_details: bool = False) -> Optional[Dict[str, Any]]:
+        """Get token usage summary.
+        
+        Args:
+            include_details: Whether to include detailed per-request token usage
+            
+        Returns:
+            Dictionary with token usage summary or None if no usage tracked
+        """
+        return self.token_tracker.get_summary(include_details=include_details)
+    
+    def print_token_summary(self) -> None:
+        """Print token usage summary to console."""
+        self.token_tracker.print_summary()
+        self.token_tracker.print_cost_estimate()
     
     async def run_full_generation(self) -> Dict[str, Any]:
         """Run the complete generation process without checkpointing."""
@@ -718,6 +775,9 @@ Ensure all fields are included in your response."""
             print(f"Generated: {save_results['success_count']} {type_info.get('name', self.synthesis_type)} items")
             print(f"Errors: {save_results['error_count']} items")
             print(f"Results saved to: {save_results['detailed_results']}")
+            
+            # Print token usage summary
+            self.print_token_summary()
             
             return {
                 'status': 'success',
