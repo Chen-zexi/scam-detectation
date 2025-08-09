@@ -9,9 +9,9 @@ from pathlib import Path
 from datetime import datetime
 
 # Import the classes we want to test
-from src.synthesize.transcript_generator import TranscriptGenerator, TranscriptResponseSchema
-from src.synthesize.transcript_prompts import MODEL_A_CONFIG, MODEL_B_CONFIG, get_model_config, get_prompt_for_category
-from src.llm_core.api_call import make_api_call_async
+from src.synthesize.synthesis_generator import TranscriptGenerator, TranscriptResponseSchema
+from src.synthesize.synthesis_prompts import MODEL_A_CONFIG, MODEL_B_CONFIG, get_model_config, get_prompt_for_category
+from src.llm_core.api_call import make_api_call
 
 
 class TestTranscriptResponseSchema:
@@ -123,8 +123,6 @@ class TestTranscriptGenerator:
         """Test transcript generator initialization with custom parameters"""
         generator = TranscriptGenerator(
             sample_size=50,
-            enable_thinking=True,
-            use_structure_model=True,
             selected_model="A",
             output_dir="custom_transcripts"
         )
@@ -143,8 +141,7 @@ class TestTranscriptGenerator:
         mock_llm_instance.get_structure_model.return_value = mock_llm
         
         generator = TranscriptGenerator(
-            sample_size=100,
-            use_structure_model=True
+            sample_size=100
         )
         
         generator.setup_models()
