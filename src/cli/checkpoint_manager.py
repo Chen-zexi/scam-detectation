@@ -260,8 +260,6 @@ class CheckpointManager:
                 'task': checkpoint_data.get('task'),
                 'sample_size': checkpoint_data.get('sample_size'),
                 'balanced_sample': checkpoint_data.get('balanced_sample', True),
-                'enable_thinking': checkpoint_data.get('enable_thinking', False),
-                'use_structure_model': checkpoint_data.get('use_structure_model', False),
                 'content_columns': checkpoint_data.get('content_columns'),
                 'checkpoint_info': {
                     'current_index': checkpoint_data.get('current_index', 0),

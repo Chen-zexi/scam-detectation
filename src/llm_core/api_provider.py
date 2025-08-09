@@ -333,34 +333,3 @@ class LLM:
         else:
             raise InvalidProviderError(f"Unsupported provider: {self.provider}. Supported: openai, anthropic, gemini, lm-studio, vllm")
         
-    def get_structure_model(self, provider: str = None):
-        """Get a model for structure parsing. Defaults to OpenAI gpt-4.1-nano with Response API."""
-        # Always use OpenAI gpt-4.1-nano for structure parsing by default
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            raise MissingAPIKeyError("OPENAI_API_KEY is not set (required for structure model parsing)")
-        # Use Response API for better performance
-        return ChatOpenAI(
-            api_key=api_key, 
-            model="gpt-4.1-nano", 
-            temperature=0, 
-            stream_usage=True,
-            model_kwargs={"output_version": "responses/v1"}
-        )
-        
-    def get_structure_model_legacy(self, provider: str):
-        """Legacy method for getting provider-specific structure models."""
-        if provider == "lm-studio":
-            host_ip = os.getenv("HOST_IP")
-            if not host_ip:
-                raise MissingAPIKeyError("HOST_IP is not set for legacy LM-Studio structure model")
-            return ChatOpenAI(base_url=f"http://{host_ip}:1234/v1", api_key='lm-studio', model='osmosis-structure-0.6b@f16', temperature=0)
-        elif provider == "vllm":
-            # Assume using lm-studio
-            host_ip = os.getenv("HOST_IP")
-            if not host_ip:
-                raise MissingAPIKeyError("HOST_IP is not set for legacy vLLM structure model")
-            print(f"http://{host_ip}:8000/v1")
-            return ChatOpenAI(base_url=f"http://{host_ip}:8000/v1", api_key='EMPTY', model='osmosis-structure-0.6b@f16', temperature=0)
-        else:
-            raise InvalidProviderError(f"Unsupported provider for structure model: {provider}")

@@ -19,7 +19,7 @@ from tqdm import tqdm
 from pydantic import BaseModel
 
 from src.llm_core.api_provider import LLM
-from src.llm_core.api_call import make_api_call_async
+from src.llm_core.api_call import make_api_call
 from src.synthesize.schema_builder import SchemaBuilder
 from src.synthesize.synthesis_prompts import SynthesisPromptsManager
 from src.database import get_scam_data_service
@@ -42,8 +42,6 @@ class SynthesisGenerator:
                  config_path: str = None,
                  provider: str = "openai",
                  model: str = "gpt-4o-mini",
-                 enable_thinking: bool = False,
-                 use_structure_model: bool = False,
                  save_to_mongodb: bool = True,
                  category: str = "ALL",
                  **model_parameters):
@@ -57,8 +55,6 @@ class SynthesisGenerator:
             config_path: Path to synthesis configuration JSON
             provider: LLM provider to use
             model: Model name
-            enable_thinking: Whether to enable thinking tokens
-            use_structure_model: Whether to use structured output parsing
             save_to_mongodb: Whether to save results to MongoDB database
             category: Specific category to generate or 'ALL' for mixed dataset
         """
@@ -67,8 +63,6 @@ class SynthesisGenerator:
         self.output_dir = Path(output_dir)
         self.provider = provider
         self.model = model
-        self.enable_thinking = enable_thinking
-        self.use_structure_model = use_structure_model
         self.save_to_mongodb = save_to_mongodb
         self.category = category
         self.model_parameters = model_parameters
@@ -90,7 +84,6 @@ class SynthesisGenerator:
         
         # Initialize LLM
         self.llm = None
-        self.structure_model = None
         
         # Checkpoint state
         self.generated_items = []
@@ -105,8 +98,6 @@ class SynthesisGenerator:
             llm_instance=self.llm_instance,
             provider=self.provider,
             model=self.model,
-            enable_thinking=self.enable_thinking,
-            use_structure_model=self.use_structure_model,
             sample_size=self.sample_size
         )
     
@@ -126,9 +117,6 @@ class SynthesisGenerator:
             self.llm = self.llm_instance.get_llm()
             logger.info(f"Model initialized: {self.provider} - {self.model}")
             
-            if self.use_structure_model:
-                self.structure_model = self.llm_instance.get_structure_model()
-                logger.info("Structure model initialized for parsing")
                 
         except Exception as e:
             raise ModelInitializationError(f"Error initializing models: {e}") from e
@@ -175,13 +163,11 @@ Ensure all fields are included in your response."""
             user_prompt = self.create_generation_prompt(category)
             
             # Make API call
-            response_obj = await make_api_call_async(
+            response_obj = await make_api_call(
                 self.llm,
                 system_prompt,
                 user_prompt,
-                response_schema=self.response_model,
-                enable_thinking=self.enable_thinking,
-                use_structure_model=self.use_structure_model
+                response_schema=self.response_model
             )
             
             return {
@@ -401,8 +387,6 @@ Ensure all fields are included in your response."""
             'model_config': ModelConfigManager.format_for_json(model_config) if model_config else {},
             'generation_timestamp': datetime.now().strftime("%Y%m%d_%H%M%S"),
             'config': {
-                'enable_thinking': self.enable_thinking,
-                'use_structure_model': self.use_structure_model,
                 'category': self.category
             }
         }

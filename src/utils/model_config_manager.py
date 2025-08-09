@@ -15,8 +15,6 @@ class ModelConfigManager:
     def get_model_config(llm_instance: Any, 
                          provider: str, 
                          model: str,
-                         enable_thinking: bool = False,
-                         use_structure_model: bool = False,
                          **additional_params) -> Dict[str, Any]:
         """
         Extract comprehensive model configuration from LLM instance.
@@ -25,8 +23,6 @@ class ModelConfigManager:
             llm_instance: The LLM instance object
             provider: Provider name (e.g., 'openai', 'anthropic')
             model: Model name (e.g., 'gpt-5', 'o3')
-            enable_thinking: Whether thinking/reasoning is enabled
-            use_structure_model: Whether structure model is used
             **additional_params: Any additional task-specific parameters
             
         Returns:
@@ -34,9 +30,7 @@ class ModelConfigManager:
         """
         model_config = {
             'provider': provider,
-            'model': model,
-            'enable_thinking': enable_thinking,
-            'use_structure_model': use_structure_model
+            'model': model
         }
         
         # Add any additional task-specific parameters
@@ -114,10 +108,6 @@ class ModelConfigManager:
             if param_key in model_config and model_config[param_key] is not None:
                 lines.append(f"  - {param_name}: {model_config[param_key]}")
         
-        # Task settings
-        lines.append("\nTask Settings:")
-        lines.append(f"  - Enable Thinking: {model_config.get('enable_thinking', False)}")
-        lines.append(f"  - Use Structure Model: {model_config.get('use_structure_model', False)}")
         
         return "\n".join(lines)
     
@@ -155,9 +145,6 @@ class ModelConfigManager:
         for param, default in param_fields.items():
             flattened[f'param_{param}'] = model_config.get(param, default)
         
-        # Add task settings
-        flattened['enable_thinking'] = model_config.get('enable_thinking', False)
-        flattened['use_structure_model'] = model_config.get('use_structure_model', False)
         
         return flattened
     
@@ -179,11 +166,7 @@ class ModelConfigManager:
                 'description': model_config.get('model_description', ''),
                 'is_reasoning': model_config.get('is_reasoning', False)
             },
-            'parameters': {},
-            'task_settings': {
-                'enable_thinking': model_config.get('enable_thinking', False),
-                'use_structure_model': model_config.get('use_structure_model', False)
-            }
+            'parameters': {}
         }
         
         # Add active parameters

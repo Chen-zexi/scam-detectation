@@ -202,19 +202,6 @@ class ModelSelector:
             print("="*40)
             print("\nThese settings are available for local model providers:")
             
-            # Enable thinking configuration
-            print("\n1. Enable Thinking/Chain-of-Thought:")
-            print("   Allows the model to show its reasoning process")
-            enable_thinking = input("   Enable? (y/n) or press Enter for default [n]: ").strip().lower()
-            parameters['enable_thinking'] = enable_thinking == 'y'
-            print(f"   Thinking mode: {'Enabled' if parameters['enable_thinking'] else 'Disabled (default)'}")
-            
-            # Use structure model configuration
-            print("\n2. Use Structure Model:")
-            print("   Uses a specialized model for parsing structured outputs")
-            use_structure = input("   Enable? (y/n) or press Enter for default [n]: ").strip().lower()
-            parameters['use_structure_model'] = use_structure == 'y'
-            print(f"   Structure model: {'Enabled' if parameters['use_structure_model'] else 'Disabled (default)'}")
         
         return parameters
     

@@ -54,8 +54,6 @@ class InteractiveProcessor:
         model_params = {}
         if 'reasoning_effort' in self.config:
             model_params['reasoning_effort'] = self.config['reasoning_effort']
-        if 'verbosity' in self.config:
-            model_params['verbosity'] = self.config['verbosity']
         
         evaluator = ScamDetectionEvaluator(
             dataset_path=self.config['dataset_path'],
@@ -63,8 +61,6 @@ class InteractiveProcessor:
             model=self.config['model'],
             sample_size=self.config.get('sample_size'),
             balanced_sample=self.config.get('balanced_sample', True),
-            enable_thinking=self.config.get('enable_thinking', False),
-            use_structure_model=self.config.get('use_structure_model', False),
             **model_params
         )
         
@@ -74,25 +70,16 @@ class InteractiveProcessor:
         if is_sample:
             # For samples, use the run_full_evaluation methods
             print("\nProcessing sample dataset...")
-            if self.config.get('use_async', True):
-                return await evaluator.run_full_evaluation_async(
-                    concurrent_requests=self.config.get('concurrent_requests', 10)
-                )
-            else:
-                return evaluator.run_full_evaluation()
+            return await evaluator.run_full_evaluation(
+                concurrent_requests=self.config.get('concurrent_requests', 10)
+            )
         else:
             # For full dataset, use checkpoint methods
-            if self.config.get('use_async', True):
-                return await evaluator.process_full_dataset_with_checkpoints_async(
-                    checkpoint_interval=self.config.get('checkpoint_interval', 100),
-                    resume_from_checkpoint=bool(self.config.get('checkpoint_file')),
-                    concurrent_requests=self.config.get('concurrent_requests', 10)
-                )
-            else:
-                return evaluator.process_full_dataset_with_checkpoints(
-                    checkpoint_interval=self.config.get('checkpoint_interval', 100),
-                    resume_from_checkpoint=bool(self.config.get('checkpoint_file'))
-                )
+            return await evaluator.process_full_dataset_with_checkpoints(
+                checkpoint_interval=self.config.get('checkpoint_interval', 100),
+                resume_from_checkpoint=bool(self.config.get('checkpoint_file')),
+                concurrent_requests=self.config.get('concurrent_requests', 10)
+            )
     
     async def run_annotation(self) -> Dict[str, Any]:
         """Run annotation task."""
@@ -100,8 +87,6 @@ class InteractiveProcessor:
         model_params = {}
         if 'reasoning_effort' in self.config:
             model_params['reasoning_effort'] = self.config['reasoning_effort']
-        if 'verbosity' in self.config:
-            model_params['verbosity'] = self.config['verbosity']
         
         annotator = LLMAnnotationPipeline(
             dataset_path=self.config['dataset_path'],
@@ -109,8 +94,6 @@ class InteractiveProcessor:
             model=self.config['model'],
             sample_size=self.config.get('sample_size'),
             balanced_sample=self.config.get('balanced_sample', True),
-            enable_thinking=self.config.get('enable_thinking', False),
-            use_structure_model=self.config.get('use_structure_model', False),
             **model_params
         )
         
@@ -120,25 +103,16 @@ class InteractiveProcessor:
         if is_sample:
             # For samples, use the run_full_annotation methods
             print("\nProcessing sample dataset...")
-            if self.config.get('use_async', True):
-                return await annotator.run_full_annotation_async(
-                    concurrent_requests=self.config.get('concurrent_requests', 10)
-                )
-            else:
-                return annotator.run_full_annotation()
+            return await annotator.run_full_annotation(
+                concurrent_requests=self.config.get('concurrent_requests', 10)
+            )
         else:
             # For full dataset, use checkpoint methods
-            if self.config.get('use_async', True):
-                return await annotator.process_full_dataset_with_checkpoints_async(
-                    checkpoint_interval=self.config.get('checkpoint_interval', 100),
-                    resume_from_checkpoint=bool(self.config.get('checkpoint_file')),
-                    concurrent_requests=self.config.get('concurrent_requests', 10)
-                )
-            else:
-                return annotator.process_full_dataset_with_checkpoints(
-                    checkpoint_interval=self.config.get('checkpoint_interval', 100),
-                    resume_from_checkpoint=bool(self.config.get('checkpoint_file'))
-                )
+            return await annotator.process_full_dataset_with_checkpoints(
+                checkpoint_interval=self.config.get('checkpoint_interval', 100),
+                resume_from_checkpoint=bool(self.config.get('checkpoint_file')),
+                concurrent_requests=self.config.get('concurrent_requests', 10)
+            )
     
     async def run_synthesis(self) -> Dict[str, Any]:
         """Run synthesis task."""
@@ -146,16 +120,12 @@ class InteractiveProcessor:
         model_params = {}
         if 'reasoning_effort' in self.config:
             model_params['reasoning_effort'] = self.config['reasoning_effort']
-        if 'verbosity' in self.config:
-            model_params['verbosity'] = self.config['verbosity']
         
         generator = SynthesisGenerator(
             synthesis_type=self.config['synthesis_type'],
             sample_size=self.config.get('sample_size', 100),
             provider=self.config['provider'],
             model=self.config['model'],
-            enable_thinking=self.config.get('enable_thinking', False),
-            use_structure_model=self.config.get('use_structure_model', False),
             save_to_mongodb=self.config.get('save_to_mongodb', True),
             category=self.config.get('category', 'ALL'),
             **model_params

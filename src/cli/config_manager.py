@@ -77,41 +77,30 @@ class ConfigManager:
             config['balanced_sample'] = response != 'n'
             print(f"Balanced sampling: {'Enabled' if config['balanced_sample'] else 'Disabled'}")
         
-        # Async processing
-        print("\nAsync Processing:")
-        print("Enables parallel API calls for faster processing")
+        # Concurrent requests (async is always enabled now)
+        print("\nConcurrent Requests:")
+        print("Number of parallel API calls (higher = faster but may hit rate limits)")
         
-        response = input("Enable async processing? (y/n) [y]: ").strip().lower()
-        config['use_async'] = response != 'n'
-        print(f"Async processing: {'Enabled' if config['use_async'] else 'Disabled'}")
-        
-        if config['use_async']:
-            # Concurrent requests
-            print("\nConcurrent Requests:")
-            print("Number of parallel API calls (higher = faster but may hit rate limits)")
-            
-            while True:
-                try:
-                    concurrent = input("Concurrent requests (1-20) [10]: ").strip()
-                    if not concurrent:
-                        config['concurrent_requests'] = 10
+        while True:
+            try:
+                concurrent = input("Concurrent requests (1-20) [10]: ").strip()
+                if not concurrent:
+                    config['concurrent_requests'] = 10
+                    break
+                else:
+                    concurrent = int(concurrent)
+                    if 1 <= concurrent <= 20:
+                        config['concurrent_requests'] = concurrent
                         break
                     else:
-                        concurrent = int(concurrent)
-                        if 1 <= concurrent <= 20:
-                            config['concurrent_requests'] = concurrent
-                            break
-                        else:
-                            print("Please enter a number between 1 and 20")
-                except ValueError:
-                    print("Please enter a valid number")
-            
-            print(f"Concurrent requests: {config['concurrent_requests']}")
+                        print("Please enter a number between 1 and 20")
+            except ValueError:
+                print("Please enter a valid number")
+        
+        print(f"Concurrent requests: {config['concurrent_requests']}")
         
         # Advanced options are configured in model_selector for local providers
         # Set defaults here - they will be overridden if configured in model_selector
-        config['enable_thinking'] = False
-        config['use_structure_model'] = False
         
         # MongoDB saving (for synthesis)
         if task == "synthesis":
@@ -180,13 +169,8 @@ class ConfigManager:
         if 'balanced_sample' in config:
             print(f"  Balanced Sampling: {config['balanced_sample']}")
         
-        print(f"  Async Processing: {config.get('use_async', False)}")
+        print(f"  Concurrent Requests: {config.get('concurrent_requests', 10)}")
         
-        if config.get('use_async'):
-            print(f"  Concurrent Requests: {config.get('concurrent_requests', 10)}")
-        
-        print(f"  Enable Thinking: {config.get('enable_thinking', False)}")
-        print(f"  Use Structure Model: {config.get('use_structure_model', False)}")
         
         if 'save_to_mongodb' in config:
             print(f"  Save to MongoDB: {config['save_to_mongodb']}")

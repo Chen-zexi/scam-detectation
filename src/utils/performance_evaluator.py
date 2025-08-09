@@ -3,7 +3,7 @@ import pandas as pd
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from src.llm_core.api_provider import LLM
-from src.llm_core.api_call import make_api_call, make_api_call_async
+from src.llm_core.api_call import make_api_call
 from src.utils.data_loader import DatasetLoader
 from src.evaluate.prompt_generator import PromptGenerator
 from src.utils.results_saver import ResultsSaver

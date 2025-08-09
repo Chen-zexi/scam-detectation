@@ -23,7 +23,7 @@ from datetime import datetime
 from tqdm import tqdm
 
 from src.llm_core.api_provider import LLM
-from src.llm_core.api_call import make_api_call, parse_structured_output, make_api_call_async, parse_structured_output_async, remove_thinking_tokens
+from src.llm_core.api_call import make_api_call, parse_structured_output
 from src.utils.data_loader import DatasetLoader
 from src.utils.results_saver import ResultsSaver
 from src.utils.model_config_manager import ModelConfigManager
@@ -111,8 +111,6 @@ class LLMAnnotationPipeline:
                  random_state: int = 42,
                  content_columns: Optional[List[str]] = None,
                  output_dir: str = "results/annotation",
-                 enable_thinking: bool = False,
-                 use_structure_model: bool = False,
                  **model_parameters):
         """
         Initialize the annotation pipeline
@@ -126,8 +124,6 @@ class LLMAnnotationPipeline:
             random_state: Random seed for reproducibility
             content_columns: List of column names to use as content for annotation
             output_dir: Directory to save annotation results
-            enable_thinking: Whether to enable thinking tokens in prompts
-            use_structure_model: Whether to use a separate structure model for parsing
         """
         self.dataset_path = dataset_path
         self.provider = provider
@@ -137,15 +133,12 @@ class LLMAnnotationPipeline:
         self.random_state = random_state
         self.content_columns = content_columns
         self.output_dir = output_dir
-        self.enable_thinking = enable_thinking
-        self.use_structure_model = use_structure_model
         self.model_parameters = model_parameters
         
         # Initialize components
         self.data_loader = DatasetLoader(dataset_path)
         self.llm_instance = None
         self.llm = None
-        self.structure_model = None
         self.prompt_generator = None
         self.annotations = []
         
@@ -170,8 +163,6 @@ class LLMAnnotationPipeline:
                 **self.model_parameters
             )
             self.llm = self.llm_instance.get_llm()
-            if self.use_structure_model:
-                self.structure_model = self.llm_instance.get_structure_model()  # Uses gpt-4.1-nano by default
             print(f"LLM initialized successfully: {self.provider} - {self.model}")
         except Exception as e:
             raise Exception(f"Error initializing LLM: {e}")
@@ -182,8 +173,6 @@ class LLMAnnotationPipeline:
             llm_instance=self.llm_instance,
             provider=self.provider,
             model=self.model,
-            enable_thinking=self.enable_thinking,
-            use_structure_model=self.use_structure_model,
             sample_size=self.sample_size,
             balanced_sample=self.balanced_sample
         )
@@ -223,63 +212,8 @@ class LLMAnnotationPipeline:
         
         return sample_df
     
-    def annotate_sample(self, sample_df: pd.DataFrame) -> List[Dict[str, Any]]:
-        """
-        Annotate the sample dataset using the LLM
-        
-        Args:
-            sample_df: Sample dataframe to annotate
-            
-        Returns:
-            List of annotation results
-        """
-        if self.llm is None:
-            raise ValueError("LLM not initialized. Call setup_llm() first.")
-        
-        if self.prompt_generator is None:
-            raise ValueError("Prompt generator not initialized. Call load_and_prepare_data() first.")
-        
-        annotations = []
-        system_prompt = self.prompt_generator.get_system_prompt()
-        
-        print("\n" + "="*80)
-        print("STARTING LLM ANNOTATION PROCESS")
-        print("="*80)
-        
-        # Use tqdm for progress tracking
-        for i, (_, row) in enumerate(tqdm(sample_df.iterrows(), total=len(sample_df), desc="Annotating")):
-            
-            # Create annotation prompt with correct label
-            user_prompt = self.prompt_generator.create_annotation_prompt(row.to_dict(), str(row['label']))
-            
-            try:
-                # Use generic API call with AnnotationResponseSchema
-                response = make_api_call(
-                    self.llm, 
-                    system_prompt, 
-                    user_prompt, 
-                    response_schema=AnnotationResponseSchema,
-                    enable_thinking=self.enable_thinking, 
-                    use_structure_model=self.use_structure_model,
-                    structure_model=self.structure_model if self.use_structure_model else None
-                )
-                
-                # Create comprehensive annotation record
-                annotation = self._create_annotation_record(i+1, row, response)
-                annotations.append(annotation)
-                
-                # Remove per-record output to avoid cluttering
-                
-            except Exception as e:
-                # Log error internally without output
-                annotation = self._create_error_annotation_record(i+1, row, str(e))
-                annotations.append(annotation)
-        
-        self.annotations = annotations
-        print(f"\nAnnotation completed. Processed {len(annotations)} records.")
-        return annotations
 
-    async def annotate_sample_async(self, sample_df: pd.DataFrame, concurrent_requests: int = 10) -> List[Dict[str, Any]]:
+    async def annotate_sample(self, sample_df: pd.DataFrame, concurrent_requests: int = 10) -> List[Dict[str, Any]]:
         """
         Annotate the sample dataset using the LLM with concurrent requests
         
@@ -316,14 +250,11 @@ class LLMAnnotationPipeline:
                 
                 try:
                     # Use generic async API call with AnnotationResponseSchema
-                    response = await make_api_call_async(
+                    response = await make_api_call(
                         self.llm, 
                         system_prompt, 
                         user_prompt, 
-                        response_schema=AnnotationResponseSchema,
-                        enable_thinking=self.enable_thinking, 
-                        use_structure_model=self.use_structure_model,
-                        structure_model=self.structure_model if self.use_structure_model else None
+                        response_schema=AnnotationResponseSchema
                     )
                     
                     # Create comprehensive annotation record
@@ -544,36 +475,8 @@ class LLMAnnotationPipeline:
         
         return summary_path
     
-    def run_full_annotation(self) -> Dict[str, Any]:
-        """Run the complete annotation pipeline"""
-        print("Starting LLM Annotation Pipeline...")
-        
-        # Setup LLM
-        self.setup_llm()
-        
-        # Load and prepare data
-        sample_df = self.load_and_prepare_data()
-        
-        # Run annotation
-        annotations = self.annotate_sample(sample_df)
-        
-        # Save results
-        save_paths = self.save_annotations()
-        
-        return {
-            'annotations': annotations,
-            'save_paths': save_paths,
-            'summary': {
-                'total_records': len(annotations),
-                'successful_annotations': len([a for a in annotations if a['confidence'] != 'error']),
-                'usable_annotations': len([a for a in annotations if a.get('usability', True)]),
-                'success_rate': len([a for a in annotations if a['confidence'] != 'error']) / len(annotations) if annotations else 0,
-                'usability_rate': len([a for a in annotations if a.get('usability', True)]) / len(annotations) if annotations else 0,
-                'dataset_name': self.data_loader.dataset_name
-            }
-        }
 
-    async def run_full_annotation_async(self, concurrent_requests: int = 10) -> Dict[str, Any]:
+    async def run_full_annotation(self, concurrent_requests: int = 10) -> Dict[str, Any]:
         """Run the complete annotation pipeline asynchronously"""
         print("Starting LLM Annotation Pipeline (Async)...")
         
@@ -584,7 +487,7 @@ class LLMAnnotationPipeline:
         sample_df = self.load_and_prepare_data()
         
         # Run annotation asynchronously
-        annotations = await self.annotate_sample_async(sample_df, concurrent_requests)
+        annotations = await self.annotate_sample(sample_df, concurrent_requests)
         
         # Save results
         save_paths = self.save_annotations()
@@ -687,8 +590,6 @@ class LLMAnnotationPipeline:
             'model': self.model,
             'sample_size': self.sample_size,
             'content_columns': self.content_columns,
-            'enable_thinking': self.enable_thinking,
-            'use_structure_model': self.use_structure_model,
             'current_index': self.current_index,
             'total_records': self.total_records,
             'annotations': self.annotations,
@@ -714,136 +615,8 @@ class LLMAnnotationPipeline:
             # Clear the postfix after a brief moment to keep it clean
             progress_bar.refresh()
     
-    def process_full_dataset_with_checkpoints(self, 
-                                            checkpoint_interval: int = 1000,
-                                            checkpoint_dir: str = "checkpoints/annotation",
-                                            resume_from_checkpoint: bool = True,
-                                            override_compatibility: bool = False) -> Dict[str, Any]:
-        """
-        Process the entire dataset (no sampling) with checkpointing capabilities
-        
-        Args:
-            checkpoint_interval: Number of records to process before saving checkpoint
-            checkpoint_dir: Directory to save checkpoints
-            resume_from_checkpoint: Whether to resume from existing checkpoint if found
-            override_compatibility: Whether to override checkpoint compatibility checks
-            
-        Returns:
-            Dictionary with annotation results and file paths
-        """
-        print("="*80)
-        print("ANNOTATION PIPELINE WITH CHECKPOINTING")
-        print("="*80)
-        
-        # Setup LLM
-        self.setup_llm()
-        
-        # Load full dataset (no sampling)
-        self.data_loader.load_dataset()
-        dataset_df = self.data_loader.df
-        self.total_records = len(dataset_df)
-        
-        # Validate content columns
-        if self.content_columns:
-            missing_columns = [col for col in self.content_columns if col not in self.data_loader.features]
-            if missing_columns:
-                raise ValueError(f"Specified content columns not found: {missing_columns}")
-        else:
-            self.content_columns = self.data_loader.features
-        
-        # Initialize prompt generator
-        self.prompt_generator = AnnotationPromptGenerator(self.data_loader.features, self.content_columns)
-        
-        print(f"Dataset: {self.data_loader.dataset_name}")
-        print(f"Total records: {self.total_records:,}")
-        print(f"Checkpoint interval: {checkpoint_interval:,}")
-        print(f"Content features: {', '.join(self.content_columns)}")
-        
-        # Load checkpoint if available
-        self.load_checkpoint(checkpoint_dir, resume_from_checkpoint, override_compatibility)
-        
-        self.start_time = time.time()
-        total_processed = len(self.annotations)
-        
-        print(f"\nProcessing records {self.current_index + 1} to {self.total_records}...")
-        
-        # Create progress bar
-        progress_bar = tqdm(
-            range(self.current_index, self.total_records),
-            desc="Annotating",
-            unit="records",
-            initial=self.current_index,
-            total=self.total_records
-        )
-        
-        # Process remaining records
-        for i in progress_bar:
-            row = dataset_df.iloc[i]
-            
-            # Update progress bar description
-            progress_bar.set_description(f"Annotating record {i + 1}/{self.total_records}")
-            
-            try:
-                # Create annotation prompt
-                system_prompt = self.prompt_generator.get_system_prompt()
-                user_prompt = self.prompt_generator.create_annotation_prompt(row.to_dict(), str(row['label']))
-                
-                # Make API call using generic function
-                response = make_api_call(
-                    self.llm, 
-                    system_prompt, 
-                    user_prompt,
-                    response_schema=AnnotationResponseSchema,
-                    enable_thinking=self.enable_thinking,
-                    use_structure_model=self.use_structure_model,
-                    structure_model=self.structure_model if self.use_structure_model else None
-                )
-                
-                # Create annotation record
-                annotation = self._create_annotation_record(i, row, response)
-                
-            except Exception as e:
-                tqdm.write(f"Error processing record {i + 1}: {e}")
-                annotation = self._create_error_annotation_record(i, row, str(e))
-            
-            self.annotations.append(annotation)
-            self.current_index = i + 1
-            total_processed += 1
-            
-            # Save checkpoint at intervals
-            if (i + 1) % checkpoint_interval == 0:
-                self.save_checkpoint(checkpoint_dir)
-                self._write_checkpoint_message(f"Checkpoint saved at record {i + 1}", progress_bar)
-        
-        # Close progress bar
-        progress_bar.close()
-        
-        # Final checkpoint
-        self.save_checkpoint(checkpoint_dir)
-        
-        # Save final results
-        save_paths = self.save_annotations()
-        
-        total_time = time.time() - self.start_time
-        print(f"\n{'='*80}")
-        print("ANNOTATION COMPLETED")
-        print(f"{'='*80}")
-        print(f"Total records processed: {total_processed:,}")
-        print(f"Total time: {total_time:.2f} seconds")
-        print(f"Average time per record: {total_time/total_processed:.3f} seconds")
-        
-        return {
-            'annotations': self.annotations,
-            'save_paths': save_paths,
-            'summary': {
-                'total_records': len(self.annotations),
-                'successful_annotations': len([a for a in self.annotations if a['confidence'] != 'error']),
-                'dataset_name': self.data_loader.dataset_name,
-                'checkpoint_file': str(self.checkpoint_file) if self.checkpoint_file else None
-            }
-        }
     
-    async def process_full_dataset_with_checkpoints_async_chunked(self, 
+    async def process_full_dataset_with_checkpoints_chunked(self, 
                                                                  checkpoint_interval: int = 1000,
                                                                  checkpoint_dir: str = "checkpoints/annotation",
                                                                  resume_from_checkpoint: bool = True,
@@ -930,7 +703,7 @@ class LLMAnnotationPipeline:
             # Create tasks for this chunk
             async def annotate_with_semaphore(index: int, row: pd.Series):
                 async with semaphore:
-                    result = await self._annotate_single_record_async(index, row)
+                    result = await self._annotate_single_record(index, row)
                     chunk_progress.update(1)
                     return result
             
@@ -991,21 +764,18 @@ class LLMAnnotationPipeline:
             }
         }
     
-    async def _annotate_single_record_async(self, index: int, row: pd.Series) -> Dict[str, Any]:
+    async def _annotate_single_record(self, index: int, row: pd.Series) -> Dict[str, Any]:
         """Annotate a single record asynchronously"""
         try:
             system_prompt = self.prompt_generator.get_system_prompt()
             user_prompt = self.prompt_generator.create_annotation_prompt(row.to_dict(), str(row['label']))
             
             # Use generic async API call
-            response = await make_api_call_async(
+            response = await make_api_call(
                 self.llm, 
                 system_prompt, 
                 user_prompt,
-                response_schema=AnnotationResponseSchema,
-                enable_thinking=self.enable_thinking,
-                use_structure_model=self.use_structure_model,
-                structure_model=self.structure_model if self.use_structure_model else None
+                response_schema=AnnotationResponseSchema
             )
             
             return self._create_annotation_record(index, row, response)
@@ -1013,7 +783,7 @@ class LLMAnnotationPipeline:
         except Exception as e:
             return self._create_error_annotation_record(index, row, str(e))
 
-    async def process_full_dataset_with_checkpoints_async(self, 
+    async def process_full_dataset_with_checkpoints(self, 
                                                          checkpoint_interval: int = 1000,
                                                          checkpoint_dir: str = "checkpoints/annotation",
                                                          resume_from_checkpoint: bool = True,
@@ -1105,7 +875,7 @@ class LLMAnnotationPipeline:
         async def process_single_record(index: int, row: pd.Series):
             """Process a single record with semaphore control"""
             async with semaphore:
-                return await self._annotate_single_record_async(index, row)
+                return await self._annotate_single_record(index, row)
         
         # Main processing loop with overlapping batches
         while next_index < self.total_records or active_tasks:
@@ -1403,8 +1173,6 @@ def main():
         else:
             print(f"Content columns: All non-label columns")
         print(f"Output directory: {args.output_dir}")
-        print(f"Enable thinking: {args.enable_thinking}")
-        print(f"Use structure model: {args.use_structure_model}")
         
         # Validate dataset
         print(f"\nValidating dataset...")
@@ -1420,8 +1188,6 @@ def main():
             random_state=args.random_state,
             content_columns=args.content_columns,
             output_dir=args.output_dir,
-            enable_thinking=args.enable_thinking,
-            use_structure_model=args.use_structure_model
         )
         
         # Run full annotation

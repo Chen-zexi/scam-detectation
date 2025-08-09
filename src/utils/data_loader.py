@@ -117,7 +117,14 @@ class DatasetLoader:
         print(f"Available data: {len(scam_df)} scam, {len(legitimate_df)} legitimate")
         
         # Calculate samples per class (half of total sample size)
-        samples_per_class = n_samples // 2
+        # Ensure at least 1 sample per class for balanced sampling
+        # For odd n_samples, we'll round up for one class
+        samples_per_class = max(1, n_samples // 2)
+        
+        # If n_samples is 1, we need special handling to get one of each
+        if n_samples == 1:
+            samples_per_class = 1
+            print("Note: Requested 1 sample with balanced sampling, returning 2 samples (1 of each class)")
         
         # Check if we have enough samples of each class
         max_scam_samples = min(samples_per_class, len(scam_df))
