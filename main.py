@@ -136,7 +136,11 @@ class InteractiveProcessor:
             save_to_mongodb=self.config.get('save_to_mongodb', True),
             category=self.config.get('category', 'ALL'),
             enable_diversity=self.config.get('enable_diversity', False),
-            diversity_level=self.config.get('diversity_level', 'medium')
+            diversity_level=self.config.get('diversity_level', 'medium'),
+            enable_multi_agent=self.config.get('enable_multi_agent', False),
+            multi_agent_quality_threshold=self.config.get('multi_agent_quality_threshold', 7.0),
+            enable_specialist_agents=self.config.get('enable_specialist_agents', True),
+            enable_iterative_refinement=self.config.get('enable_iterative_refinement', True)
         )
         
         return await generator.process_full_generation_with_checkpoints(
@@ -167,6 +171,14 @@ class InteractiveProcessor:
             # Choose diversity settings
             diversity_settings = self.ui_helper.choose_diversity_settings()
             self.config.update(diversity_settings)
+            
+            # Choose multi-agent settings (only if diversity is enabled)
+            if self.config.get('enable_diversity', False):
+                multi_agent_settings = self.ui_helper.choose_multi_agent_settings()
+                self.config.update(multi_agent_settings)
+            else:
+                # Disable multi-agent if diversity is disabled
+                self.config['enable_multi_agent'] = False
         else:
             # Choose dataset
             datasets = self.dataset_manager.discover_datasets()

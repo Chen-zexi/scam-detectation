@@ -1,0 +1,177 @@
+{
+  "multi_agent_settings": {
+    "enabled": false,
+    "quality_threshold": 7.0,
+    "max_collaboration_rounds": 3,
+    "enable_specialist_agents": true,
+    "enable_iterative_refinement": true,
+    "confidence_threshold": 8.0
+  },
+  "agent_configurations": {
+    "content_generator": {
+      "role": "generator",
+      "specialization": "Initial content creation with diversity techniques",
+      "max_iterations": 1,
+      "quality_focus": ["diversity", "authenticity", "category_adherence"]
+    },
+    "quality_evaluator": {
+      "role": "evaluator", 
+      "specialization": "Content quality assessment and scoring",
+      "confidence_threshold": 7.5,
+      "evaluation_dimensions": ["realism", "authenticity", "diversity", "language_quality", "training_value"]
+    },
+    "content_refiner": {
+      "role": "refiner",
+      "specialization": "Content improvement and polish",
+      "max_iterations": 2,
+      "refinement_focus": ["realism_enhancement", "authenticity_improvement", "language_polish"]
+    },
+    "scam_specialist": {
+      "role": "specialist",
+      "specialization": "Social engineering and scam technique expertise",
+      "expertise_areas": ["social_engineering", "persuasion_techniques", "authority_tactics", "urgency_creation"],
+      "activation_categories": ["authority_scam", "tech_support_scam", "urgency_scam", "financial_fraud", "subtle_scam"]
+    },
+    "authenticity_specialist": {
+      "role": "specialist", 
+      "specialization": "Real-world accuracy and believability",
+      "expertise_areas": ["communication_patterns", "institutional_procedures", "demographic_accuracy", "technical_validation"],
+      "activation_categories": ["all"]
+    },
+    "coordinator": {
+      "role": "coordinator",
+      "specialization": "Multi-agent collaboration management", 
+      "decision_criteria": ["quality_convergence", "collaboration_efficiency", "diminishing_returns"],
+      "final_decision_threshold": 8.0
+    }
+  },
+  "collaboration_strategies": {
+    "sequential": {
+      "description": "Agents work in sequence: Generate -> Evaluate -> Refine -> Coordinate",
+      "workflow": ["content_generator", "quality_evaluator", "content_refiner", "coordinator"],
+      "parallel_evaluation": false
+    },
+    "parallel_evaluation": {
+      "description": "Multiple evaluators work in parallel for comprehensive assessment",
+      "workflow": ["content_generator", ["quality_evaluator", "scam_specialist", "authenticity_specialist"], "content_refiner", "coordinator"],
+      "parallel_evaluation": true
+    },
+    "iterative_refinement": {
+      "description": "Multiple rounds of evaluation and refinement",
+      "workflow": ["content_generator", "quality_evaluator", "content_refiner", "quality_evaluator", "coordinator"],
+      "max_iterations": 3,
+      "convergence_threshold": 0.5
+    }
+  },
+  "quality_metrics": {
+    "realism": {
+      "weight": 0.25,
+      "description": "How believable and realistic the scenario appears",
+      "minimum_threshold": 6.0
+    },
+    "authenticity": {
+      "weight": 0.25, 
+      "description": "Accuracy to real-world patterns and behaviors",
+      "minimum_threshold": 6.5
+    },
+    "diversity": {
+      "weight": 0.20,
+      "description": "Variation from typical patterns and templates",
+      "minimum_threshold": 6.0
+    },
+    "language_quality": {
+      "weight": 0.15,
+      "description": "Natural language use and grammatical correctness",
+      "minimum_threshold": 7.0
+    },
+    "training_value": {
+      "weight": 0.15,
+      "description": "Usefulness for training ML models",
+      "minimum_threshold": 6.5
+    }
+  },
+  "specialist_activation_rules": {
+    "scam_categories": {
+      "triggers": ["scam", "fraud", "phishing", "deception"],
+      "required_specialists": ["scam_specialist"],
+      "optional_specialists": ["authenticity_specialist"]
+    },
+    "legitimate_categories": {
+      "triggers": ["legitimate", "authentic", "professional"],
+      "required_specialists": ["authenticity_specialist"],
+      "optional_specialists": []
+    },
+    "technical_categories": {
+      "triggers": ["tech_support", "technical", "IT"],
+      "required_specialists": ["authenticity_specialist"],
+      "optional_specialists": ["scam_specialist"]
+    },
+    "authority_categories": {
+      "triggers": ["authority", "government", "official"],
+      "required_specialists": ["scam_specialist", "authenticity_specialist"],
+      "optional_specialists": []
+    }
+  },
+  "performance_optimization": {
+    "parallel_agent_calls": true,
+    "cache_agent_responses": true,
+    "adaptive_iteration_limits": true,
+    "early_termination_conditions": {
+      "quality_threshold_met": true,
+      "no_improvement_rounds": 2,
+      "maximum_time_limit": 300
+    }
+  },
+  "evaluation_templates": {
+    "comprehensive_evaluation": {
+      "dimensions": ["realism", "authenticity", "diversity", "language_quality", "training_value"],
+      "scale": "1-10",
+      "required_feedback": ["strengths", "weaknesses", "specific_suggestions"]
+    },
+    "specialist_evaluation": {
+      "domain_specific_criteria": true,
+      "expertise_validation": true,
+      "improvement_recommendations": true
+    },
+    "final_coordination": {
+      "meta_assessment": true,
+      "process_evaluation": true,
+      "content_approval": true,
+      "usage_recommendations": true
+    }
+  },
+  "fallback_strategies": {
+    "agent_failure": {
+      "retry_count": 2,
+      "fallback_to_previous_agent": true,
+      "skip_failed_agent": true
+    },
+    "quality_threshold_not_met": {
+      "extend_iterations": true,
+      "lower_threshold_gradually": true,
+      "accept_best_available": true
+    },
+    "timeout_handling": {
+      "partial_results_acceptable": true,
+      "save_intermediate_outputs": true,
+      "fallback_to_single_agent": true
+    }
+  },
+  "research_techniques": {
+    "metasynth_integration": {
+      "meta_prompting": true,
+      "expert_agent_orchestration": true,
+      "collaborative_generation": true
+    },
+    "agentsgen_patterns": {
+      "evaluator_editor_loop": true,
+      "semantic_consistency_enforcement": true,
+      "iterative_refinement": true
+    },
+    "convogen_approaches": {
+      "few_shot_hub_updates": true,
+      "dynamic_example_selection": true,
+      "conversational_flow_optimization": true
+    }
+  }
+}
