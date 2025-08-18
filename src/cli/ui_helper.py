@@ -327,3 +327,207 @@ class UIHelper:
                         print(f"\nMongoDB: {mongodb.get('inserted_count', 0)} records saved")
         
         print("\n" + "="*80)
+    
+    @staticmethod
+    def choose_diversity_settings() -> Dict[str, Any]:
+        """
+        Interactive diversity enhancement configuration.
+        
+        Returns:
+            Dictionary with diversity settings
+        """
+        print("\n🎯 Diversity Enhancement Settings")
+        print("=" * 40)
+        print("Diversity enhancement improves the variety and quality of generated data")
+        print("using advanced prompt engineering techniques from MetaSynth and CoDSA research.")
+        print()
+        
+        # Ask if user wants diversity enhancement
+        while True:
+            try:
+                enable_choice = input("Enable diversity enhancement? (y/n) [n]: ").strip().lower()
+                if enable_choice in ['', 'n', 'no']:
+                    return {'enable_diversity': False}
+                elif enable_choice in ['y', 'yes']:
+                    break
+                else:
+                    print("Please enter 'y' for yes or 'n' for no")
+            except KeyboardInterrupt:
+                print("\nOperation cancelled")
+                sys.exit(0)
+        
+        # Choose diversity level
+        print("\nSelect diversity enhancement level:")
+        print("1. Minimal   - Basic template rotation")
+        print("2. Medium    - Templates + context + examples (recommended)")
+        print("3. High      - All techniques + self-consistency")
+        print("4. Maximum   - Multi-agent + advanced techniques (experimental)")
+        print()
+        
+        level_map = {
+            1: "minimal",
+            2: "medium", 
+            3: "high",
+            4: "maximum"
+        }
+        
+        while True:
+            try:
+                choice = input("Enter choice [2]: ").strip()
+                if choice == "":
+                    level = "medium"
+                    break
+                
+                choice_num = int(choice)
+                if choice_num in level_map:
+                    level = level_map[choice_num]
+                    break
+                else:
+                    print("Please enter a number between 1-4")
+            except ValueError:
+                print("Please enter a valid number")
+            except KeyboardInterrupt:
+                print("\nOperation cancelled")
+                sys.exit(0)
+        
+        # Show what techniques will be enabled
+        techniques = {
+            "minimal": ["Template Variation"],
+            "medium": ["Template Variation", "Context Injection", "Few-Shot Learning", "Persona Variation"],
+            "high": ["Template Variation", "Context Injection", "Few-Shot Learning", "Persona Variation", "Self-Consistency"],
+            "maximum": ["All techniques", "Multi-Agent Generation", "Advanced Meta-Prompting"]
+        }
+        
+        print(f"\n✅ Diversity level '{level}' selected")
+        print("Enabled techniques:")
+        for technique in techniques[level]:
+            print(f"  • {technique}")
+        
+        return {
+            'enable_diversity': True,
+            'diversity_level': level
+        }
+    
+    @staticmethod
+    def choose_multi_agent_settings() -> Dict[str, Any]:
+        """
+        Interactive multi-agent collaboration configuration.
+        
+        Returns:
+            Dictionary with multi-agent settings
+        """
+        print("\n🤖 Multi-Agent Collaboration Settings")
+        print("=" * 45)
+        print("Multi-agent collaboration uses specialized AI agents that work together")
+        print("to generate, evaluate, and refine synthetic data for higher quality.")
+        print()
+        print("Based on research from:")
+        print("• MetaSynth: Meta-Prompting-Driven Agentic Scaffolds")
+        print("• AgentSGEN: Multi-Agent LLM Collaboration")
+        print("• ConvoGen: Multi-Agent Conversational Data Generation")
+        print()
+        
+        # Ask if user wants multi-agent collaboration
+        while True:
+            try:
+                enable_choice = input("Enable multi-agent collaboration? (y/n) [n]: ").strip().lower()
+                if enable_choice in ['', 'n', 'no']:
+                    return {'enable_multi_agent': False}
+                elif enable_choice in ['y', 'yes']:
+                    break
+                else:
+                    print("Please enter 'y' for yes or 'n' for no")
+            except KeyboardInterrupt:
+                print("\nOperation cancelled")
+                sys.exit(0)
+        
+        print("\n🎯 Multi-Agent Configuration:")
+        
+        # Quality threshold setting
+        print("\nQuality threshold (when to activate multi-agent vs standard generation):")
+        print("1. Conservative (6.0) - Use multi-agent more often")
+        print("2. Balanced (7.0) - Recommended balance")
+        print("3. Selective (8.0) - Use multi-agent for challenging content")
+        print("4. Minimal (9.0) - Use multi-agent rarely")
+        
+        threshold_map = {
+            1: 6.0,
+            2: 7.0,
+            3: 8.0, 
+            4: 9.0
+        }
+        
+        while True:
+            try:
+                choice = input("Enter choice [2]: ").strip()
+                if choice == "":
+                    threshold = 7.0
+                    break
+                
+                choice_num = int(choice)
+                if choice_num in threshold_map:
+                    threshold = threshold_map[choice_num]
+                    break
+                else:
+                    print("Please enter a number between 1-4")
+            except ValueError:
+                print("Please enter a valid number")
+            except KeyboardInterrupt:
+                print("\nOperation cancelled")
+                sys.exit(0)
+        
+        # Specialist agents setting
+        print("\nEnable specialist agents? (domain experts for scam tactics, authenticity, etc.)")
+        while True:
+            try:
+                specialist_choice = input("Enable specialist agents? (y/n) [y]: ").strip().lower()
+                if specialist_choice in ['', 'y', 'yes']:
+                    enable_specialists = True
+                    break
+                elif specialist_choice in ['n', 'no']:
+                    enable_specialists = False
+                    break
+                else:
+                    print("Please enter 'y' for yes or 'n' for no")
+            except KeyboardInterrupt:
+                print("\nOperation cancelled")
+                sys.exit(0)
+        
+        # Iterative refinement setting
+        print("\nEnable iterative refinement? (agents improve content through multiple rounds)")
+        while True:
+            try:
+                refinement_choice = input("Enable iterative refinement? (y/n) [y]: ").strip().lower()
+                if refinement_choice in ['', 'y', 'yes']:
+                    enable_refinement = True
+                    break
+                elif refinement_choice in ['n', 'no']:
+                    enable_refinement = False
+                    break
+                else:
+                    print("Please enter 'y' for yes or 'n' for no")
+            except KeyboardInterrupt:
+                print("\nOperation cancelled")
+                sys.exit(0)
+        
+        # Show configuration summary
+        print(f"\n✅ Multi-agent collaboration configured:")
+        print(f"  • Quality threshold: {threshold}")
+        print(f"  • Specialist agents: {'Enabled' if enable_specialists else 'Disabled'}")
+        print(f"  • Iterative refinement: {'Enabled' if enable_refinement else 'Disabled'}")
+        print()
+        print("Multi-agent process:")
+        print("  1. Generator Agent creates initial content")
+        print("  2. Evaluator Agent assesses quality and realism")
+        if enable_specialists:
+            print("  3. Specialist Agents provide domain expertise")
+        if enable_refinement:
+            print(f"  {'4' if enable_specialists else '3'}. Refiner Agent improves content")
+            print(f"  {'5' if enable_specialists else '4'}. Coordinator Agent makes final assessment")
+        
+        return {
+            'enable_multi_agent': True,
+            'multi_agent_quality_threshold': threshold,
+            'enable_specialist_agents': enable_specialists,
+            'enable_iterative_refinement': enable_refinement
+        }

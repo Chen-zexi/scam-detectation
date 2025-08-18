@@ -23,6 +23,8 @@ from src.llm_core.api_call import make_api_call
 from src.llm_core.token_counter import TokenUsageTracker
 from src.synthesize.schema_builder import SchemaBuilder
 from src.synthesize.synthesis_prompts import SynthesisPromptsManager
+from src.synthesize.diversity_manager import DiversityManager, DiversityConfig, DiversityLevel
+from src.synthesize.multi_agent_system import MultiAgentOrchestrator, MultiAgentSynthesisGenerator
 from src.database import get_scam_data_service
 from src.exceptions import UnknownSynthesisTypeError, ModelInitializationError, APICallError
 from src.utils.model_config_manager import ModelConfigManager
@@ -45,6 +47,14 @@ class SynthesisGenerator:
                  model: str = "gpt-4o-mini",
                  save_to_mongodb: bool = True,
                  category: str = "ALL",
+                 enable_diversity: bool = False,
+                 diversity_level: str = "medium",
+                 diversity_config_path: str = None,
+                 enable_multi_agent: bool = False,
+                 multi_agent_quality_threshold: float = 7.0,
+                 enable_specialist_agents: bool = True,
+                 enable_iterative_refinement: bool = True,
+                 multi_agent_config_path: str = None,
                  **model_parameters):
         """
         Initialize the synthesis generator.
@@ -58,6 +68,14 @@ class SynthesisGenerator:
             model: Model name
             save_to_mongodb: Whether to save results to MongoDB database
             category: Specific category to generate or 'ALL' for mixed dataset
+            enable_diversity: Whether to enable diversity enhancement techniques
+            diversity_level: Level of diversity enhancement ('minimal', 'medium', 'high', 'maximum')
+            diversity_config_path: Path to diversity configuration JSON
+            enable_multi_agent: Whether to enable multi-agent collaboration
+            multi_agent_quality_threshold: Quality threshold for multi-agent activation
+            enable_specialist_agents: Whether to use specialist domain agents
+            enable_iterative_refinement: Whether to enable iterative content refinement
+            multi_agent_config_path: Path to multi-agent configuration JSON
         """
         self.synthesis_type = synthesis_type
         self.sample_size = sample_size
@@ -66,11 +84,51 @@ class SynthesisGenerator:
         self.model = model
         self.save_to_mongodb = save_to_mongodb
         self.category = category
+        
+        # Diversity enhancement settings
+        self.enable_diversity = enable_diversity
+        self.diversity_level = diversity_level
+        self.diversity_config_path = diversity_config_path
+        
+        # Multi-agent collaboration settings
+        self.enable_multi_agent = enable_multi_agent
+        self.multi_agent_quality_threshold = multi_agent_quality_threshold
+        self.enable_specialist_agents = enable_specialist_agents
+        self.enable_iterative_refinement = enable_iterative_refinement
+        self.multi_agent_config_path = multi_agent_config_path
         self.model_parameters = model_parameters
         
         # Initialize components
         self.prompts_manager = SynthesisPromptsManager(config_path)
         self.schema_builder = SchemaBuilder()
+        
+        # Initialize diversity manager if enabled
+        self.diversity_manager = None
+        if self.enable_diversity:
+            try:
+                self.diversity_manager = DiversityManager(
+                    self.prompts_manager, 
+                    self.diversity_config_path
+                )
+                logger.info(f"Diversity enhancement enabled at {diversity_level} level")
+            except Exception as e:
+                logger.warning(f"Failed to initialize diversity manager: {e}. Falling back to standard generation.")
+                self.enable_diversity = False
+        
+        # Initialize multi-agent orchestrator if enabled
+        self.multi_agent_orchestrator = None
+        if self.enable_multi_agent:
+            try:
+                # Multi-agent requires diversity manager
+                if not self.diversity_manager:
+                    logger.warning("Multi-agent requires diversity enhancement. Enabling diversity with medium level.")
+                    self.diversity_manager = DiversityManager(self.prompts_manager, self.diversity_config_path)
+                
+                # Will be initialized after LLM setup in setup_models()
+                logger.info(f"Multi-agent collaboration enabled (threshold: {multi_agent_quality_threshold})")
+            except Exception as e:
+                logger.warning(f"Multi-agent setup preparation failed: {e}. Multi-agent will be disabled.")
+                self.enable_multi_agent = False
         
         # Validate synthesis type
         if synthesis_type not in self.prompts_manager.get_synthesis_types():
@@ -121,6 +179,23 @@ class SynthesisGenerator:
             self.llm = self.llm_instance.get_llm()
             logger.info(f"Model initialized: {self.provider} - {self.model}")
             
+            
+            # Initialize multi-agent orchestrator if enabled (requires LLM)
+            if self.enable_multi_agent and self.llm and self.diversity_manager:
+                try:
+                    self.multi_agent_orchestrator = MultiAgentOrchestrator(
+                        llm=self.llm,
+                        prompts_manager=self.prompts_manager,
+                        diversity_manager=self.diversity_manager,
+                        enable_specialist_agents=self.enable_specialist_agents,
+                        enable_iterative_refinement=self.enable_iterative_refinement,
+                        max_collaboration_rounds=3
+                    )
+                    logger.info("Multi-agent orchestrator initialized successfully")
+                except Exception as e:
+                    logger.warning(f"Failed to initialize multi-agent orchestrator: {e}. Multi-agent disabled.")
+                    self.enable_multi_agent = False
+                    self.multi_agent_orchestrator = None
                 
         except Exception as e:
             raise ModelInitializationError(f"Error initializing models: {e}") from e
@@ -149,19 +224,91 @@ Ensure all fields are included in your response."""
     
     def create_generation_prompt(self, category: str) -> str:
         """Create a generation prompt for a specific category."""
-        return self.prompts_manager.create_generation_prompt(self.synthesis_type, category)
+        if self.enable_diversity and self.diversity_manager:
+            # Create diversity configuration based on level
+            diversity_config = self._create_diversity_config()
+            return self.diversity_manager.create_diverse_generation_prompt(
+                self.synthesis_type, category, diversity_config
+            )
+        else:
+            # Fall back to standard prompt generation
+            return self.prompts_manager.create_generation_prompt(self.synthesis_type, category)
+    
+    def _create_diversity_config(self) -> DiversityConfig:
+        """Create diversity configuration based on the selected level."""
+        level_map = {
+            "minimal": DiversityLevel.MINIMAL,
+            "medium": DiversityLevel.MEDIUM,
+            "high": DiversityLevel.HIGH,
+            "maximum": DiversityLevel.MAXIMUM
+        }
+        
+        level = level_map.get(self.diversity_level.lower(), DiversityLevel.MEDIUM)
+        
+        # Configure techniques based on level
+        if level == DiversityLevel.MINIMAL:
+            return DiversityConfig(
+                level=level,
+                template_variation=True,
+                context_injection=False,
+                few_shot_learning=False,
+                persona_variation=False,
+                self_consistency=False
+            )
+        elif level == DiversityLevel.MEDIUM:
+            return DiversityConfig(
+                level=level,
+                template_variation=True,
+                context_injection=True,
+                few_shot_learning=True,
+                persona_variation=True,
+                self_consistency=False
+            )
+        elif level == DiversityLevel.HIGH:
+            return DiversityConfig(
+                level=level,
+                template_variation=True,
+                context_injection=True,
+                few_shot_learning=True,
+                persona_variation=True,
+                self_consistency=True,
+                num_candidates=3
+            )
+        else:  # MAXIMUM
+            return DiversityConfig(
+                level=level,
+                template_variation=True,
+                context_injection=True,
+                few_shot_learning=True,
+                persona_variation=True,
+                self_consistency=True,
+                num_candidates=5,
+                confidence_threshold=0.9
+            )
     
     async def generate_single_item(self, category: str, item_index: int = 0) -> Dict[str, Any]:
         """
         Generate a single item for the specified category.
+        
+        Uses multi-agent collaboration if enabled, otherwise falls back to
+        standard generation with optional diversity enhancement.
         
         Args:
             category: Category identifier
             item_index: Index of the item being generated (for token tracking)
             
         Returns:
-            Dictionary with generation result
+            Dictionary with generation result including multi-agent metadata if used
         """
+        # Use multi-agent collaboration if enabled and orchestrator is available
+        if self.enable_multi_agent and self.multi_agent_orchestrator:
+            try:
+                return await self._generate_with_multi_agent(category)
+            except Exception as e:
+                logger.warning(f"Multi-agent generation failed for {category}: {e}. Falling back to standard generation.")
+                # Fall through to standard generation
+        
+        # Standard generation (with optional diversity)
         try:
             # Get prompts
             system_prompt = self.get_system_prompt()
@@ -183,7 +330,8 @@ Ensure all fields are included in your response."""
                 'success': True,
                 'response': response_obj,
                 'category': category,
-                'synthesis_type': self.synthesis_type
+                'synthesis_type': self.synthesis_type,
+                'generation_method': 'standard_with_diversity' if self.enable_diversity else 'standard'
             }
             
         except Exception as e:
@@ -191,8 +339,60 @@ Ensure all fields are included in your response."""
                 'success': False,
                 'error': str(e),
                 'category': category,
-                'synthesis_type': self.synthesis_type
+                'synthesis_type': self.synthesis_type,
+                'generation_method': 'failed'
             }
+    
+    async def _generate_with_multi_agent(self, category: str) -> Dict[str, Any]:
+        """
+        Generate content using multi-agent collaboration.
+        
+        Args:
+            category: Category identifier
+            
+        Returns:
+            Dictionary with generation result and multi-agent metadata
+        """
+        try:
+            # Create diversity configuration
+            diversity_config = self._create_diversity_config()
+            
+            # Use multi-agent collaboration
+            result = await self.multi_agent_orchestrator.generate_with_multi_agent_collaboration(
+                synthesis_type=self.synthesis_type,
+                category=category,
+                diversity_config=diversity_config,
+                target_schema=self.response_model
+            )
+            
+            # Convert to response model format
+            try:
+                response_obj = self.response_model(**result.content)
+            except Exception as e:
+                logger.warning(f"Failed to convert multi-agent result to response model: {e}")
+                # Create a mock response object
+                response_obj = result.content
+            
+            return {
+                'success': True,
+                'response': response_obj,
+                'category': category,
+                'synthesis_type': self.synthesis_type,
+                'generation_method': 'multi_agent',
+                'multi_agent_metadata': {
+                    'quality_score': result.quality_score,
+                    'iteration_count': result.iteration_count,
+                    'agent_feedback': result.agent_feedback,
+                    'improvement_suggestions': result.improvement_suggestions,
+                    'final_assessment': result.final_assessment,
+                    'generation_metadata': result.generation_metadata,
+                    'collaboration_quality': 'high' if result.quality_score >= self.multi_agent_quality_threshold else 'medium'
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"Multi-agent generation failed: {e}")
+            raise  # Re-raise to trigger fallback in parent method
     
     async def generate_batch_async(self, categories: List[str], concurrent_requests: int = 5, show_progress: bool = True) -> List[Dict[str, Any]]:
         """
