@@ -10,7 +10,7 @@ from pathlib import Path
 
 # Import the classes we want to test
 from src.annotate.annotation_pipeline import LLMAnnotationPipeline, AnnotationResponseSchema, AnnotationPromptGenerator
-from src.llm_core.api_call import make_api_call, make_api_call_async
+from src.llm_core.api_call import make_api_call
 
 
 class TestAnnotationPromptGenerator:
@@ -95,9 +95,7 @@ class TestLLMAnnotationPipeline:
         assert pipeline.model == "gpt-4o-mini"
         assert pipeline.sample_size == 3
         assert pipeline.balanced_sample == False
-        assert pipeline.use_structure_model == False
-        assert pipeline.enable_thinking == False
-        assert pipeline.output_dir == "annotations"
+        assert pipeline.output_dir == "results/annotation"
     
     def test_init_with_custom_params(self, temp_dataset_file):
         """Test annotation pipeline initialization with custom parameters"""
@@ -108,9 +106,7 @@ class TestLLMAnnotationPipeline:
             sample_size=10,
             balanced_sample=True,
             content_columns=['subject', 'body'],
-            output_dir="custom_annotations",
-            enable_thinking=True,
-            use_structure_model=True
+            output_dir="custom_annotations"
         )
         
         assert pipeline.provider == "anthropic"
@@ -119,30 +115,24 @@ class TestLLMAnnotationPipeline:
         assert pipeline.balanced_sample == True
         assert pipeline.content_columns == ['subject', 'body']
         assert pipeline.output_dir == "custom_annotations"
-        assert pipeline.enable_thinking == True
-        assert pipeline.use_structure_model == True
     
     @patch('src.annotate.annotation_pipeline.LLM')
     def test_setup_llm(self, mock_llm_class, temp_dataset_file, mock_llm_instance, mock_llm):
         """Test LLM setup"""
         mock_llm_class.return_value = mock_llm_instance
         mock_llm_instance.get_llm.return_value = mock_llm
-        mock_llm_instance.get_structure_model.return_value = mock_llm
         
         pipeline = LLMAnnotationPipeline(
             dataset_path=temp_dataset_file,
             provider="openai",
-            model="gpt-4o-mini",
-            use_structure_model=True
+            model="gpt-4o-mini"
         )
         
         pipeline.setup_llm()
         
         assert pipeline.llm is not None
-        assert pipeline.structure_model is not None
         mock_llm_class.assert_called_once_with(provider="openai", model="gpt-4o-mini")
         mock_llm_instance.get_llm.assert_called_once()
-        mock_llm_instance.get_structure_model.assert_called_once()
     
     @patch('src.annotate.annotation_pipeline.LLM')
     def test_load_and_prepare_data(self, mock_llm_class, temp_dataset_file, sample_dataset):
@@ -201,16 +191,16 @@ class TestLLMAnnotationPipeline:
         if call_args and len(call_args) > 1 and 'response_schema' in call_args[1]:
             assert call_args[1]['response_schema'] == AnnotationResponseSchema
     
-    @patch('src.annotate.annotation_pipeline.make_api_call_async')
+    @patch('src.annotate.annotation_pipeline.make_api_call')
     @patch('src.annotate.annotation_pipeline.LLM')
-    def test_annotate_sample_async(self, mock_llm_class, mock_api_call_async,
+    def test_annotate_sample(self, mock_llm_class, mock_api_call,
                                    temp_dataset_file, mock_llm_instance, mock_llm,
                                    mock_annotation_response):
         """Test asynchronous annotation"""
         # Setup mocks
         mock_llm_class.return_value = mock_llm_instance
         mock_llm_instance.get_llm.return_value = mock_llm
-        mock_api_call_async.return_value = mock_annotation_response
+        mock_api_call.return_value = mock_annotation_response
         
         pipeline = LLMAnnotationPipeline(
             dataset_path=temp_dataset_file,
@@ -223,83 +213,20 @@ class TestLLMAnnotationPipeline:
         sample_df = pipeline.load_and_prepare_data()
         
         # Run async annotation
-        results = asyncio.run(pipeline.annotate_sample_async(sample_df, concurrent_requests=2))
+        results = asyncio.run(pipeline.annotate_sample(sample_df, concurrent_requests=2))
         
         assert len(results) == 2
         assert all('record_id' in result for result in results)
         assert all('explanation' in result for result in results)
         
         # Verify async API call was made
-        mock_api_call_async.assert_called()
+        mock_api_call.assert_called()
         # Check that response_schema is passed (relaxed check)
-        call_args = mock_api_call_async.call_args
+        call_args = mock_api_call.call_args
         if call_args and len(call_args) > 1 and 'response_schema' in call_args[1]:
             assert call_args[1]['response_schema'] == AnnotationResponseSchema
     
-    @patch('src.annotate.annotation_pipeline.make_api_call')
-    @patch('src.annotate.annotation_pipeline.LLM')
-    def test_annotate_with_structure_model(self, mock_llm_class, mock_api_call,
-                                          temp_dataset_file, mock_llm_instance,
-                                          mock_llm, mock_annotation_response):
-        """Test annotation with structure model enabled"""
-        # Setup mocks
-        mock_llm_class.return_value = mock_llm_instance
-        mock_llm_instance.get_llm.return_value = mock_llm
-        mock_llm_instance.get_structure_model.return_value = mock_llm
-        mock_api_call.return_value = mock_annotation_response
-        
-        pipeline = LLMAnnotationPipeline(
-            dataset_path=temp_dataset_file,
-            provider="openai",
-            model="gpt-4o-mini",
-            sample_size=1,
-            use_structure_model=True
-        )
-        
-        pipeline.setup_llm()
-        sample_df = pipeline.load_and_prepare_data()
-        results = pipeline.annotate_sample(sample_df)
-        
-        assert len(results) == 1
-        
-        # Verify API call was made with structure model parameters (relaxed)
-        mock_api_call.assert_called()
-        call_args = mock_api_call.call_args
-        if call_args and len(call_args) > 1:
-            # Just check that some structure model related parameter exists
-            assert 'use_structure_model' in call_args[1] or 'structure_model' in call_args[1]
     
-    @patch('src.annotate.annotation_pipeline.make_api_call')
-    @patch('src.annotate.annotation_pipeline.LLM')
-    def test_annotate_with_thinking_tokens(self, mock_llm_class, mock_api_call,
-                                          temp_dataset_file, mock_llm_instance,
-                                          mock_llm, mock_annotation_response):
-        """Test annotation with thinking tokens enabled"""
-        # Setup mocks
-        mock_llm_class.return_value = mock_llm_instance
-        mock_llm_instance.get_llm.return_value = mock_llm
-        mock_api_call.return_value = mock_annotation_response
-        
-        pipeline = LLMAnnotationPipeline(
-            dataset_path=temp_dataset_file,
-            provider="openai",
-            model="gpt-4o-mini",
-            sample_size=1,
-            enable_thinking=True
-        )
-        
-        pipeline.setup_llm()
-        sample_df = pipeline.load_and_prepare_data()
-        results = pipeline.annotate_sample(sample_df)
-        
-        assert len(results) == 1
-        
-        # Verify API call was made with thinking enabled (relaxed)
-        mock_api_call.assert_called()
-        # Just verify that API call was made with some thinking parameter
-        call_args = mock_api_call.call_args
-        if call_args and len(call_args) > 1 and 'enable_thinking' in call_args[1]:
-            assert call_args[1]['enable_thinking'] == True
     
     @patch('src.annotate.annotation_pipeline.make_api_call')
     @patch('src.annotate.annotation_pipeline.LLM')
@@ -528,16 +455,16 @@ class TestAnnotationIntegration:
         assert Path(save_paths['annotated_dataset_path']).exists()
         assert Path(save_paths['summary_path']).exists()
     
-    @patch('src.annotate.annotation_pipeline.make_api_call_async')
+    @patch('src.annotate.annotation_pipeline.make_api_call')
     @patch('src.annotate.annotation_pipeline.LLM')
-    def test_run_full_annotation_async(self, mock_llm_class, mock_api_call_async,
+    def test_run_full_annotation(self, mock_llm_class, mock_api_call,
                                       temp_dataset_file, mock_llm_instance, mock_llm,
                                       mock_annotation_response, test_results_dir, clean_results_dir):
         """Test running the full annotation pipeline asynchronously"""
         # Setup mocks
         mock_llm_class.return_value = mock_llm_instance
         mock_llm_instance.get_llm.return_value = mock_llm
-        mock_api_call_async.return_value = mock_annotation_response
+        mock_api_call.return_value = mock_annotation_response
         
         pipeline = LLMAnnotationPipeline(
             dataset_path=temp_dataset_file,
@@ -548,7 +475,7 @@ class TestAnnotationIntegration:
         )
         
         # Run full pipeline async
-        result = asyncio.run(pipeline.run_full_annotation_async(concurrent_requests=2))
+        result = asyncio.run(pipeline.run_full_annotation(concurrent_requests=2))
         
         assert 'annotations' in result
         assert 'save_paths' in result

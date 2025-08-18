@@ -19,13 +19,15 @@ from tqdm import tqdm
 from pydantic import BaseModel
 
 from src.llm_core.api_provider import LLM
-from src.llm_core.api_call import make_api_call_async
+from src.llm_core.api_call import make_api_call
+from src.llm_core.token_counter import TokenUsageTracker
 from src.synthesize.schema_builder import SchemaBuilder
 from src.synthesize.synthesis_prompts import SynthesisPromptsManager
 from src.synthesize.diversity_manager import DiversityManager, DiversityConfig, DiversityLevel
 from src.synthesize.multi_agent_system import MultiAgentOrchestrator, MultiAgentSynthesisGenerator
 from src.database import get_scam_data_service
 from src.exceptions import UnknownSynthesisTypeError, ModelInitializationError, APICallError
+from src.utils.model_config_manager import ModelConfigManager
 
 logger = logging.getLogger(__name__)
 
@@ -43,8 +45,6 @@ class SynthesisGenerator:
                  config_path: str = None,
                  provider: str = "openai",
                  model: str = "gpt-4o-mini",
-                 enable_thinking: bool = False,
-                 use_structure_model: bool = False,
                  save_to_mongodb: bool = True,
                  category: str = "ALL",
                  enable_diversity: bool = False,
@@ -54,7 +54,8 @@ class SynthesisGenerator:
                  multi_agent_quality_threshold: float = 7.0,
                  enable_specialist_agents: bool = True,
                  enable_iterative_refinement: bool = True,
-                 multi_agent_config_path: str = None):
+                 multi_agent_config_path: str = None,
+                 **model_parameters):
         """
         Initialize the synthesis generator.
         
@@ -65,8 +66,6 @@ class SynthesisGenerator:
             config_path: Path to synthesis configuration JSON
             provider: LLM provider to use
             model: Model name
-            enable_thinking: Whether to enable thinking tokens
-            use_structure_model: Whether to use structured output parsing
             save_to_mongodb: Whether to save results to MongoDB database
             category: Specific category to generate or 'ALL' for mixed dataset
             enable_diversity: Whether to enable diversity enhancement techniques
@@ -83,8 +82,6 @@ class SynthesisGenerator:
         self.output_dir = Path(output_dir)
         self.provider = provider
         self.model = model
-        self.enable_thinking = enable_thinking
-        self.use_structure_model = use_structure_model
         self.save_to_mongodb = save_to_mongodb
         self.category = category
         
@@ -99,6 +96,7 @@ class SynthesisGenerator:
         self.enable_specialist_agents = enable_specialist_agents
         self.enable_iterative_refinement = enable_iterative_refinement
         self.multi_agent_config_path = multi_agent_config_path
+        self.model_parameters = model_parameters
         
         # Initialize components
         self.prompts_manager = SynthesisPromptsManager(config_path)
@@ -145,24 +143,42 @@ class SynthesisGenerator:
         
         # Initialize LLM
         self.llm = None
-        self.structure_model = None
+        
+        # Token tracking (silent by default)
+        self.token_tracker = TokenUsageTracker(verbose=False)
         
         # Checkpoint state
         self.generated_items = []
         self.current_index = 0
         self.checkpoint_file = None
         self.start_time = None
+        self.llm_instance = None
+    
+    def get_model_config(self) -> Dict[str, Any]:
+        """Get detailed model configuration using ModelConfigManager."""
+        return ModelConfigManager.get_model_config(
+            llm_instance=self.llm_instance,
+            provider=self.provider,
+            model=self.model,
+            sample_size=self.sample_size
+        )
     
     def setup_models(self):
         """Initialize the LLM models."""
         try:
-            self.llm = LLM(provider=self.provider, model=self.model).get_llm()
+            # Use Response API by default for OpenAI models
+            use_response_api = (self.provider == "openai")
+            
+            # Pass model parameters to LLM instance
+            self.llm_instance = LLM(
+                provider=self.provider, 
+                model=self.model, 
+                use_response_api=use_response_api,
+                **self.model_parameters
+            )
+            self.llm = self.llm_instance.get_llm()
             logger.info(f"Model initialized: {self.provider} - {self.model}")
             
-            if self.use_structure_model:
-                llm_provider = LLM()
-                self.structure_model = llm_provider.get_structure_model()
-                logger.info("Structure model initialized for parsing")
             
             # Initialize multi-agent orchestrator if enabled (requires LLM)
             if self.enable_multi_agent and self.llm and self.diversity_manager:
@@ -270,7 +286,7 @@ Ensure all fields are included in your response."""
                 confidence_threshold=0.9
             )
     
-    async def generate_single_item(self, category: str) -> Dict[str, Any]:
+    async def generate_single_item(self, category: str, item_index: int = 0) -> Dict[str, Any]:
         """
         Generate a single item for the specified category.
         
@@ -279,6 +295,7 @@ Ensure all fields are included in your response."""
         
         Args:
             category: Category identifier
+            item_index: Index of the item being generated (for token tracking)
             
         Returns:
             Dictionary with generation result including multi-agent metadata if used
@@ -297,15 +314,17 @@ Ensure all fields are included in your response."""
             system_prompt = self.get_system_prompt()
             user_prompt = self.create_generation_prompt(category)
             
-            # Make API call
-            response_obj = await make_api_call_async(
+            # Make API call with token usage tracking
+            response_obj, token_info = await make_api_call(
                 self.llm,
                 system_prompt,
                 user_prompt,
                 response_schema=self.response_model,
-                enable_thinking=self.enable_thinking,
-                use_structure_model=self.use_structure_model
+                return_token_usage=True
             )
+            
+            # Add to token tracker
+            self.token_tracker.add_usage(token_info, self.model, f"synthesis_{item_index}")
             
             return {
                 'success': True,
@@ -395,7 +414,7 @@ Ensure all fields are included in your response."""
         
         async def process_with_semaphore(category, index):
             async with semaphore:
-                result = await self.generate_single_item(category)
+                result = await self.generate_single_item(category, index)
                 result['index'] = index
                 return result
         
@@ -562,6 +581,12 @@ Ensure all fields are included in your response."""
         """Generate summary statistics for the results."""
         type_info = self.prompts_manager.get_synthesis_type_info(self.synthesis_type)
         
+        # Get model configuration
+        model_config = self.get_model_config() if hasattr(self, 'llm_instance') else {}
+        
+        # Get token usage summary
+        token_summary = self.token_tracker.get_summary()
+        
         stats = {
             'synthesis_type': self.synthesis_type,
             'synthesis_name': type_info.get('name', self.synthesis_type),
@@ -571,13 +596,18 @@ Ensure all fields are included in your response."""
             'success_rate': len(successful_results) / len(all_results) if all_results else 0,
             'provider': self.provider,
             'model': self.model,
+            'model_config': ModelConfigManager.format_for_json(model_config) if model_config else {},
             'generation_timestamp': datetime.now().strftime("%Y%m%d_%H%M%S"),
             'config': {
-                'enable_thinking': self.enable_thinking,
-                'use_structure_model': self.use_structure_model,
                 'category': self.category
-            }
+            },
+            'token_usage': token_summary
         }
+        
+        # Add cost estimation
+        costs = self.token_tracker.estimate_cost()
+        if costs:
+            stats['estimated_costs'] = costs
         
         # Add distribution statistics if we have a dataframe
         if detailed_df is not None and not detailed_df.empty:
@@ -616,6 +646,26 @@ Ensure all fields are included in your response."""
             
             f.write(f"\nGeneration completed: {summary_stats['generation_timestamp']}\n")
             f.write(f"Model: {self.provider} - {self.model}\n")
+            
+            # Add token usage if available
+            if 'token_usage' in summary_stats and summary_stats['token_usage']:
+                token_usage = summary_stats['token_usage']
+                f.write(f"\nToken Usage:\n")
+                f.write(f"  Total input tokens: {token_usage.get('total_input_tokens', 0):,}\n")
+                f.write(f"  Total output tokens: {token_usage.get('total_output_tokens', 0):,}\n")
+                f.write(f"  Total tokens: {token_usage.get('total_tokens', 0):,}\n")
+                if token_usage.get('total_cached_tokens', 0) > 0:
+                    f.write(f"  Cached tokens: {token_usage['total_cached_tokens']:,}\n")
+            
+            # Add estimated costs if available
+            if 'estimated_costs' in summary_stats and summary_stats['estimated_costs']:
+                costs = summary_stats['estimated_costs']
+                f.write(f"\nEstimated Costs:\n")
+                f.write(f"  Input cost: ${costs.get('input_cost', 0):.4f}\n")
+                f.write(f"  Output cost: ${costs.get('output_cost', 0):.4f}\n")
+                if costs.get('cached_cost', 0) > 0:
+                    f.write(f"  Cached cost: ${costs['cached_cost']:.4f}\n")
+                f.write(f"  Total cost: ${costs.get('total_cost', 0):.4f}\n")
     
     def _save_to_mongodb(self, successful_results: List[Dict]) -> Dict[str, Any]:
         """Save results to MongoDB."""
@@ -855,12 +905,31 @@ Ensure all fields are included in your response."""
         # Save final results
         save_results = self.save_results(all_results)
         
+        # Print token usage summary
+        self.print_token_summary()
+        
         return {
             'status': 'completed',
             'results': save_results,
             'total_generated': len(all_results),
             'checkpoint_file': self.checkpoint_file
         }
+    
+    def get_token_usage_summary(self, include_details: bool = False) -> Optional[Dict[str, Any]]:
+        """Get token usage summary.
+        
+        Args:
+            include_details: Whether to include detailed per-request token usage
+            
+        Returns:
+            Dictionary with token usage summary or None if no usage tracked
+        """
+        return self.token_tracker.get_summary(include_details=include_details)
+    
+    def print_token_summary(self) -> None:
+        """Print token usage summary to console."""
+        self.token_tracker.print_summary()
+        self.token_tracker.print_cost_estimate()
     
     async def run_full_generation(self) -> Dict[str, Any]:
         """Run the complete generation process without checkpointing."""
@@ -906,6 +975,9 @@ Ensure all fields are included in your response."""
             print(f"Generated: {save_results['success_count']} {type_info.get('name', self.synthesis_type)} items")
             print(f"Errors: {save_results['error_count']} items")
             print(f"Results saved to: {save_results['detailed_results']}")
+            
+            # Print token usage summary
+            self.print_token_summary()
             
             return {
                 'status': 'success',

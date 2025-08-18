@@ -1,0 +1,541 @@
+{
+  "models": {
+    "openai": [
+      {
+        "id": "gpt-5",
+        "name": "GPT-5",
+        "is_reasoning": true,
+        "description": "OpenAI's most advanced reasoning model",
+        "pricing": {
+          "input": 1.25,
+          "cached_input": 0.125,
+          "output": 10.00,
+          "unit": "per_1m_tokens"
+        },
+        "parameters": {
+          "reasoning_effort": {
+            "type": "enum",
+            "options": ["minimal", "low", "medium", "high"],
+            "default": "minimal",
+            "description": "Controls reasoning depth (minimal for fast responses, high for complex tasks)"
+          }
+        },
+        "unsupported_parameters": ["temperature", "top_p", "presence_penalty", "frequency_penalty"]
+      },
+      {
+        "id": "gpt-5-mini",
+        "name": "GPT-5 Mini",
+        "is_reasoning": true,
+        "description": "Smaller, faster GPT-5 variant",
+        "pricing": {
+          "input": 0.25,
+          "cached_input": 0.025,
+          "output": 2.00,
+          "unit": "per_1m_tokens"
+        },
+        "parameters": {
+          "reasoning_effort": {
+            "type": "enum",
+            "options": ["minimal", "low", "medium", "high"],
+            "default": "minimal",
+            "description": "Controls reasoning depth"
+          }
+        },
+        "unsupported_parameters": ["temperature", "top_p", "presence_penalty", "frequency_penalty"]
+      },
+      {
+        "id": "gpt-5-nano",
+        "name": "GPT-5 Nano",
+        "is_reasoning": true,
+        "description": "Smallest, fastest GPT-5 variant",
+        "pricing": {
+          "input": 0.05,
+          "cached_input": 0.005,
+          "output": 0.40,
+          "unit": "per_1m_tokens"
+        },
+        "parameters": {
+          "reasoning_effort": {
+            "type": "enum",
+            "options": ["minimal", "low", "medium", "high"],
+            "default": "minimal",
+            "description": "Controls reasoning depth"
+          }
+        },
+        "unsupported_parameters": ["temperature", "top_p", "presence_penalty", "frequency_penalty"]
+      },
+      {
+        "id": "gpt-4.1",
+        "name": "GPT-4.1",
+        "is_reasoning": false,
+        "description": "GPT-4.1 model",
+        "pricing": {
+          "input": 2.00,
+          "cached_input": 0.50,
+          "output": 8.00,
+          "unit": "per_1m_tokens"
+        },
+        "parameters": {
+          "temperature": {
+            "type": "float",
+            "min": 0,
+            "max": 2,
+            "default": 0,
+            "description": "Controls randomness in output"
+          },
+          "top_p": {
+            "type": "float",
+            "min": 0,
+            "max": 1,
+            "default": 1,
+            "description": "Nucleus sampling parameter"
+          },
+          "presence_penalty": {
+            "type": "float",
+            "min": -2,
+            "max": 2,
+            "default": 0,
+            "description": "Penalizes new tokens based on presence"
+          },
+          "frequency_penalty": {
+            "type": "float",
+            "min": -2,
+            "max": 2,
+            "default": 0,
+            "description": "Penalizes new tokens based on frequency"
+          }
+        },
+        "unsupported_parameters": ["reasoning_effort"]
+      },
+      {
+        "id": "gpt-4.1-mini",
+        "name": "GPT-4.1 Mini",
+        "is_reasoning": false,
+        "description": "Smaller GPT-4.1 variant",
+        "pricing": {
+          "input": 0.40,
+          "cached_input": 0.10,
+          "output": 1.60,
+          "unit": "per_1m_tokens"
+        },
+        "parameters": {
+          "temperature": {
+            "type": "float",
+            "min": 0,
+            "max": 2,
+            "default": 0,
+            "description": "Controls randomness in output"
+          },
+          "top_p": {
+            "type": "float",
+            "min": 0,
+            "max": 1,
+            "default": 1,
+            "description": "Nucleus sampling parameter"
+          }
+        },
+        "unsupported_parameters": ["reasoning_effort"]
+      },
+      {
+        "id": "gpt-4.1-nano",
+        "name": "GPT-4.1 Nano",
+        "is_reasoning": false,
+        "description": "Smallest GPT-4.1 variant",
+        "pricing": {
+          "input": 0.10,
+          "cached_input": 0.025,
+          "output": 0.40,
+          "unit": "per_1m_tokens"
+        },
+        "parameters": {
+          "temperature": {
+            "type": "float",
+            "min": 0,
+            "max": 2,
+            "default": 0,
+            "description": "Controls randomness in output"
+          }
+        },
+        "unsupported_parameters": ["reasoning_effort"]
+      },
+      {
+        "id": "gpt-4o",
+        "name": "GPT-4o",
+        "is_reasoning": false,
+        "description": "Optimized GPT-4 variant",
+        "parameters": {
+          "temperature": {
+            "type": "float",
+            "min": 0,
+            "max": 2,
+            "default": 0,
+            "description": "Controls randomness in output"
+          },
+          "top_p": {
+            "type": "float",
+            "min": 0,
+            "max": 1,
+            "default": 1,
+            "description": "Nucleus sampling parameter"
+          }
+        },
+        "unsupported_parameters": ["reasoning_effort"]
+      },
+      {
+        "id": "gpt-4o-mini",
+        "name": "GPT-4o Mini",
+        "is_reasoning": false,
+        "description": "Smaller GPT-4o variant",
+        "parameters": {
+          "temperature": {
+            "type": "float",
+            "min": 0,
+            "max": 2,
+            "default": 0,
+            "description": "Controls randomness in output"
+          }
+        },
+        "unsupported_parameters": ["reasoning_effort"]
+      },
+      {
+        "id": "o3",
+        "name": "O3",
+        "is_reasoning": true,
+        "description": "Advanced reasoning model for complex multi-faceted analysis",
+        "parameters": {
+          "reasoning_effort": {
+            "type": "enum",
+            "options": ["low", "medium", "high"],
+            "default": "medium",
+            "description": "Controls reasoning depth for complex tasks"
+          },
+          "max_completion_tokens": {
+            "type": "integer",
+            "min": 1,
+            "max": 128000,
+            "default": 16384,
+            "description": "Maximum tokens in response"
+          }
+        },
+        "unsupported_parameters": ["temperature", "top_p", "presence_penalty", "frequency_penalty", "logprobs", "logit_bias"]
+      },
+      {
+        "id": "o4-mini",
+        "name": "O4 Mini",
+        "is_reasoning": true,
+        "description": "Fast, cost-efficient reasoning model",
+        "parameters": {
+          "reasoning_effort": {
+            "type": "enum",
+            "options": ["low", "medium", "high"],
+            "default": "low",
+            "description": "Controls reasoning depth (optimized for speed)"
+          },
+          "max_completion_tokens": {
+            "type": "integer",
+            "min": 1,
+            "max": 65536,
+            "default": 8192,
+            "description": "Maximum tokens in response"
+          }
+        },
+        "unsupported_parameters": ["temperature", "top_p", "presence_penalty", "frequency_penalty", "logprobs", "logit_bias"]
+      }
+    ],
+    "anthropic": [
+      {
+        "id": "claude-opus-4-1-20250805",
+        "name": "Claude 4.1 Opus",
+        "is_reasoning": false,
+        "description": "Latest and most capable Claude Opus model",
+        "parameters": {
+          "temperature": {
+            "type": "float",
+            "min": 0,
+            "max": 1,
+            "default": 0,
+            "description": "Controls randomness in output"
+          },
+          "max_tokens": {
+            "type": "integer",
+            "min": 1,
+            "max": 8192,
+            "default": 4096,
+            "description": "Maximum tokens in response"
+          },
+          "top_p": {
+            "type": "float",
+            "min": 0,
+            "max": 1,
+            "default": 1,
+            "description": "Nucleus sampling parameter"
+          }
+        },
+        "unsupported_parameters": ["reasoning_effort", "thinking_budget"]
+      },
+      {
+        "id": "claude-opus-4-20250522",
+        "name": "Claude 4 Opus",
+        "is_reasoning": false,
+        "description": "Claude 4 Opus model",
+        "parameters": {
+          "temperature": {
+            "type": "float",
+            "min": 0,
+            "max": 1,
+            "default": 0,
+            "description": "Controls randomness in output"
+          },
+          "max_tokens": {
+            "type": "integer",
+            "min": 1,
+            "max": 8192,
+            "default": 4096,
+            "description": "Maximum tokens in response"
+          },
+          "top_p": {
+            "type": "float",
+            "min": 0,
+            "max": 1,
+            "default": 1,
+            "description": "Nucleus sampling parameter"
+          }
+        },
+        "unsupported_parameters": ["reasoning_effort", "thinking_budget"]
+      },
+      {
+        "id": "claude-sonnet-4-20250522",
+        "name": "Claude 4 Sonnet",
+        "is_reasoning": false,
+        "description": "Claude 4 Sonnet model",
+        "parameters": {
+          "temperature": {
+            "type": "float",
+            "min": 0,
+            "max": 1,
+            "default": 0,
+            "description": "Controls randomness in output"
+          },
+          "max_tokens": {
+            "type": "integer",
+            "min": 1,
+            "max": 8192,
+            "default": 4096,
+            "description": "Maximum tokens in response"
+          },
+          "top_p": {
+            "type": "float",
+            "min": 0,
+            "max": 1,
+            "default": 1,
+            "description": "Nucleus sampling parameter"
+          }
+        },
+        "unsupported_parameters": ["reasoning_effort", "thinking_budget"]
+      },
+      {
+        "id": "claude-3-7-sonnet",
+        "name": "Claude 3.7 Sonnet",
+        "is_reasoning": true,
+        "description": "Hybrid AI reasoning model with controllable thinking time",
+        "parameters": {
+          "temperature": {
+            "type": "float",
+            "min": 0,
+            "max": 1,
+            "default": 0,
+            "description": "Controls randomness in output"
+          },
+          "max_tokens": {
+            "type": "integer",
+            "min": 1,
+            "max": 8192,
+            "default": 4096,
+            "description": "Maximum tokens in response"
+          },
+          "top_p": {
+            "type": "float",
+            "min": 0,
+            "max": 1,
+            "default": 1,
+            "description": "Nucleus sampling parameter"
+          }
+        },
+        "unsupported_parameters": ["reasoning_effort", "thinking_budget"]
+      },
+      {
+        "id": "claude-3-5-haiku-20241022",
+        "name": "Claude 3.5 Haiku",
+        "is_reasoning": false,
+        "description": "Fast model matching Claude 3 Opus performance",
+        "parameters": {
+          "temperature": {
+            "type": "float",
+            "min": 0,
+            "max": 1,
+            "default": 0,
+            "description": "Controls randomness in output"
+          },
+          "max_tokens": {
+            "type": "integer",
+            "min": 1,
+            "max": 8192,
+            "default": 4096,
+            "description": "Maximum tokens in response"
+          },
+          "top_p": {
+            "type": "float",
+            "min": 0,
+            "max": 1,
+            "default": 1,
+            "description": "Nucleus sampling parameter"
+          }
+        },
+        "unsupported_parameters": ["reasoning_effort", "thinking_budget"]
+      }
+    ],
+    "gemini": [
+      {
+        "id": "gemini-2.5-pro",
+        "name": "Gemini 2.5 Pro",
+        "is_reasoning": true,
+        "description": "Google's advanced reasoning model with thinking capabilities",
+        "parameters": {
+          "thinking_budget": {
+            "type": "integer",
+            "min": -1,
+            "max": 24576,
+            "default": 0,
+            "description": "Thinking tokens budget (-1 for dynamic, 0 to disable, up to 24576)"
+          },
+          "temperature": {
+            "type": "float",
+            "min": 0,
+            "max": 2,
+            "default": 0,
+            "description": "Controls randomness in output"
+          },
+          "top_p": {
+            "type": "float",
+            "min": 0,
+            "max": 1,
+            "default": 1,
+            "description": "Nucleus sampling parameter"
+          },
+          "max_output_tokens": {
+            "type": "integer",
+            "min": 1,
+            "max": 8192,
+            "default": 8192,
+            "description": "Maximum tokens in response"
+          }
+        },
+        "unsupported_parameters": []
+      },
+      {
+        "id": "gemini-2.5-flash",
+        "name": "Gemini 2.5 Flash",
+        "is_reasoning": true,
+        "description": "Fast reasoning model with thinking disabled by default",
+        "parameters": {
+          "thinking_budget": {
+            "type": "integer",
+            "min": -1,
+            "max": 24576,
+            "default": 0,
+            "description": "Thinking tokens budget (-1 for dynamic, 0 to disable, up to 24576)"
+          },
+          "temperature": {
+            "type": "float",
+            "min": 0,
+            "max": 2,
+            "default": 0,
+            "description": "Controls randomness in output"
+          },
+          "top_p": {
+            "type": "float",
+            "min": 0,
+            "max": 1,
+            "default": 1,
+            "description": "Nucleus sampling parameter"
+          },
+          "max_output_tokens": {
+            "type": "integer",
+            "min": 1,
+            "max": 8192,
+            "default": 8192,
+            "description": "Maximum tokens in response"
+          }
+        },
+        "unsupported_parameters": []
+      },
+      {
+        "id": "gemini-2.5-flash-lite",
+        "name": "Gemini 2.5 Flash-Lite",
+        "is_reasoning": true,
+        "description": "Cost-optimized model with thinking disabled by default",
+        "parameters": {
+          "thinking_budget": {
+            "type": "integer",
+            "min": -1,
+            "max": 24576,
+            "default": 0,
+            "description": "Thinking tokens budget (-1 for dynamic, 0 to disable, up to 24576)"
+          },
+          "temperature": {
+            "type": "float",
+            "min": 0,
+            "max": 2,
+            "default": 0,
+            "description": "Controls randomness in output"
+          },
+          "top_p": {
+            "type": "float",
+            "min": 0,
+            "max": 1,
+            "default": 1,
+            "description": "Nucleus sampling parameter"
+          },
+          "max_output_tokens": {
+            "type": "integer",
+            "min": 1,
+            "max": 8192,
+            "default": 8192,
+            "description": "Maximum tokens in response"
+          }
+        },
+        "unsupported_parameters": []
+      }
+    ],
+    "lm-studio": [],
+    "vllm": []
+  },
+  "provider_config": {
+    "openai": {
+      "base_url": "https://api.openai.com/v1",
+      "env_key": "OPENAI_API_KEY"
+    },
+    "anthropic": {
+      "env_key": "ANTHROPIC_API_KEY"
+    },
+    "gemini": {
+      "env_key": "GEMINI_API_KEY"
+    },
+    "lm-studio": {
+      "base_url": "http://{HOST_IP}:1234/v1",
+      "env_key": null,
+      "dynamic_models": true,
+      "default_parameters": {
+        "temperature": 0
+      }
+    },
+    "vllm": {
+      "base_url": "http://{HOST_IP}:8000/v1",
+      "env_key": null,
+      "dynamic_models": true,
+      "default_parameters": {
+        "temperature": 0
+      }
+    }
+  }
+}

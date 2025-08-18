@@ -3,7 +3,7 @@ import pandas as pd
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from src.llm_core.api_provider import LLM
-from src.llm_core.api_call import make_api_call, make_api_call_async
+from src.llm_core.api_call import make_api_call
 from src.utils.data_loader import DatasetLoader
 from src.evaluate.prompt_generator import PromptGenerator
 from src.utils.results_saver import ResultsSaver
@@ -143,7 +143,9 @@ class PerformanceEvaluator:
         
         # Initialize LLM
         try:
-            llm_instance = LLM(provider=provider, model=model)
+            # Use Response API by default for OpenAI models
+            use_response_api = (provider == "openai")
+            llm_instance = LLM(provider=provider, model=model, use_response_api=use_response_api)
             llm = llm_instance.get_llm()
         except Exception as e:
             print(f"Failed to initialize {provider} - {model}: {e}")
@@ -216,7 +218,9 @@ class PerformanceEvaluator:
         
         # Initialize LLM
         try:
-            llm_instance = LLM(provider=provider, model=model)
+            # Use Response API by default for OpenAI models
+            use_response_api = (provider == "openai")
+            llm_instance = LLM(provider=provider, model=model, use_response_api=use_response_api)
             llm = llm_instance.get_llm()
         except Exception as e:
             print(f"Failed to initialize {provider} - {model}: {e}")

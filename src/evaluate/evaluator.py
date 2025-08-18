@@ -2,7 +2,8 @@ import pandas as pd
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
 from src.llm_core.api_provider import LLM
-from src.llm_core.api_call import make_api_call, parse_structured_output, make_api_call_async, parse_structured_output_async, remove_thinking_tokens
+from src.llm_core.api_call import make_api_call, parse_structured_output
+from src.llm_core.token_counter import TokenUsageTracker
 from src.utils.data_loader import DatasetLoader
 from src.evaluate.prompt_generator import PromptGenerator
 
@@ -12,6 +13,7 @@ class EvaluationResponseSchema(BaseModel):
     Reason: str
 from src.utils.metrics_calculator import MetricsCalculator
 from src.utils.results_saver import ResultsSaver
+from src.utils.model_config_manager import ModelConfigManager
 import asyncio
 import time
 import json
@@ -32,9 +34,8 @@ class ScamDetectionEvaluator:
                  sample_size: int = 100,
                  balanced_sample: bool = False,
                  random_state: int = 42,
-                 enable_thinking: bool = False,
                  content_columns: Optional[List[str]] = None,
-                 use_structure_model: bool = False):
+                 **model_parameters):
         """
         Initialize the evaluator with dataset and model configuration
         
@@ -55,16 +56,14 @@ class ScamDetectionEvaluator:
         self.balanced_sample = balanced_sample
         self.random_state = random_state
         self.content_columns = content_columns
+        self.model_parameters = model_parameters
         
         # Initialize components
         self.data_loader = DatasetLoader(dataset_path)
         self.llm_instance = None
         self.llm = None
-        self.structure_model = None
         self.prompt_generator = None
         self.results = []
-        self.use_structure_model = use_structure_model
-        self.enable_thinking = enable_thinking
         
         # Checkpoint state
         self.current_index = 0
@@ -73,14 +72,29 @@ class ScamDetectionEvaluator:
         self.start_time = None
         self.last_checkpoint_message = None
         
+        # Token tracking (silent by default)
+        self.token_tracker = TokenUsageTracker(verbose=False)
+        
     def setup_llm(self):
         """Initialize the LLM"""
         try:
-            self.llm_instance = LLM(provider=self.provider, model=self.model)
+            # Use Response API by default for OpenAI models
+            use_response_api = (self.provider == "openai")
+            
+            # Pass model parameters to LLM instance
+            self.llm_instance = LLM(
+                provider=self.provider, 
+                model=self.model, 
+                use_response_api=use_response_api,
+                **self.model_parameters
+            )
             self.llm = self.llm_instance.get_llm()
-            if self.use_structure_model:
-                self.structure_model = self.llm_instance.get_structure_model()  # Uses gpt-4.1-nano by default
             print(f"LLM initialized successfully: {self.provider} - {self.model}")
+            # Print configured parameters if any
+            if self.model_parameters:
+                param_keys = [k for k in self.model_parameters.keys() if k in ['reasoning_effort']]
+                if param_keys:
+                    print(f"Model parameters: {', '.join([f'{k}={self.model_parameters[k]}' for k in param_keys])}")
         except Exception as e:
             raise Exception(f"Error initializing LLM: {e}")
     
@@ -119,74 +133,8 @@ class ScamDetectionEvaluator:
         
         return sample_df
     
-    def evaluate_sample(self, sample_df: pd.DataFrame) -> List[Dict[str, Any]]:
-        """
-        Evaluate the sample dataset using the LLM
-        
-        Args:
-            sample_df: Sample dataframe to evaluate
-            
-        Returns:
-            List of evaluation results
-        """
-        if self.llm is None:
-            raise ValueError("LLM not initialized. Call setup_llm() first.")
-        
-        if self.prompt_generator is None:
-            raise ValueError("Prompt generator not initialized. Call load_and_prepare_data() first.")
-        
-        results = []
-        system_prompt = self.prompt_generator.get_system_prompt()
-        
-        print("\n" + "="*80)
-        print("STARTING SCAM DETECTION EVALUATION")
-        print("="*80)
-        
-        # Use tqdm for progress tracking
-        for i, (_, row) in enumerate(tqdm(sample_df.iterrows(), total=len(sample_df), desc="Evaluating")):
-            
-            # Create user prompt with specified content features
-            user_prompt = self.prompt_generator.create_user_prompt(row.to_dict())
-            
-            try:
-                if self.use_structure_model:
-                    # Make API call
-                    response = make_api_call(self.llm, system_prompt, user_prompt, response_schema=None, enable_thinking=self.enable_thinking, use_structure_model=True, structure_model=self.structure_model)
-                    # Thinking tokens are automatically removed in make_api_call
-                    response = parse_structured_output(self.structure_model, response, EvaluationResponseSchema)
-                    # Response parsed successfully
-                else:
-                    # Make API call
-                    response = make_api_call(self.llm, system_prompt, user_prompt, response_schema=EvaluationResponseSchema, use_structure_model=False)
-                
-                # Extract prediction
-                predicted_scam = response.Phishing  # Note: API still uses "Phishing" key for compatibility
-                predicted_label = 1 if predicted_scam else 0
-                actual_label = int(row['label'])  # Should be safe since data is pre-cleaned
-                
-                # Calculate if prediction is correct
-                is_correct = predicted_label == actual_label
-                
-                # Create comprehensive result record
-                result = self._create_result_record(row, predicted_label, is_correct, response.Reason)
-                
-                results.append(result)
-                
-                # Use tqdm.write to avoid interfering with progress bar
-                tqdm.write(f"  Record {i+1}: Actual={'Scam' if actual_label == 1 else 'Legitimate'}, "
-                          f"Predicted={'Scam' if predicted_label == 1 else 'Legitimate'}, "
-                          f"Correct={is_correct}")
-                
-            except Exception as e:
-                tqdm.write(f"  Error processing record {i+1}: {e}")
-                result = self._create_error_result_record(row, str(e))
-                results.append(result)
-        
-        self.results = results
-        print(f"\nEvaluation completed. Processed {len(results)} records.")
-        return results
 
-    async def evaluate_sample_async(self, sample_df: pd.DataFrame, concurrent_requests: int = 10) -> List[Dict[str, Any]]:
+    async def evaluate_sample(self, sample_df: pd.DataFrame, concurrent_requests: int = 10) -> List[Dict[str, Any]]:
         """
         Evaluate the sample dataset using the LLM with concurrent requests
         
@@ -225,16 +173,16 @@ class ScamDetectionEvaluator:
                 user_prompt = self.prompt_generator.create_user_prompt(row.to_dict())
                 
                 try:
-                    if self.use_structure_model:
-                        # Make async API call
-                        response = await make_api_call_async(self.llm, system_prompt, user_prompt, 
-                                                           response_schema=None, enable_thinking=self.enable_thinking, use_structure_model=True, structure_model=self.structure_model)
-                        # Thinking tokens are automatically removed in make_api_call_async
-                        response = await parse_structured_output_async(self.structure_model, response, EvaluationResponseSchema)
-                        # Response parsed successfully
-                    else:
-                        # Make async API call
-                        response = await make_api_call_async(self.llm, system_prompt, user_prompt, response_schema=EvaluationResponseSchema, use_structure_model=False)
+                    # Track token usage
+                    token_info = {}
+                    
+                    # Make async API call with token tracking
+                    response, token_info = await make_api_call(self.llm, system_prompt, user_prompt,
+                                                                    response_schema=EvaluationResponseSchema,
+                                                                    return_token_usage=True)
+                    
+                    # Add to token tracker
+                    self.token_tracker.add_usage(token_info, self.model, f"async_record_{i+1}")
                     
                     # Extract prediction
                     predicted_scam = response.Phishing  # Note: API still uses "Phishing" key for compatibility
@@ -244,8 +192,8 @@ class ScamDetectionEvaluator:
                     # Calculate if prediction is correct
                     is_correct = predicted_label == actual_label
                     
-                    # Create comprehensive result record
-                    result = self._create_result_record(row, predicted_label, is_correct, response.Reason)
+                    # Create comprehensive result record with token usage
+                    result = self._create_result_record(row, predicted_label, is_correct, response.Reason, token_info)
                     
                     tqdm.write(f"Record {i+1} - Actual: {'Scam' if actual_label == 1 else 'Legitimate'}, "
                               f"Predicted: {'Scam' if predicted_label == 1 else 'Legitimate'}, Correct: {is_correct}")
@@ -296,7 +244,8 @@ class ScamDetectionEvaluator:
                              row: pd.Series, 
                              predicted_label: int, 
                              is_correct: bool, 
-                             llm_reason: str) -> Dict[str, Any]:
+                             llm_reason: str,
+                             token_info: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Create a comprehensive result record including original data"""
         # Label should be clean at this point due to pre-filtering
         actual_label = int(row['label'])
@@ -309,6 +258,22 @@ class ScamDetectionEvaluator:
             'is_correct': is_correct,
             'llm_reason': llm_reason
         }
+        
+        # Add token usage if available
+        if token_info:
+            result['token_usage'] = {
+                'input_tokens': token_info.get('input_tokens', 0),
+                'output_tokens': token_info.get('output_tokens', 0),
+                'total_tokens': token_info.get('total_tokens', 0),
+                'reasoning_tokens': token_info.get('reasoning_tokens', 0)
+            }
+            # Add enhanced token fields if present
+            if token_info.get('cached_tokens', 0) > 0:
+                result['token_usage']['cached_tokens'] = token_info['cached_tokens']
+            if token_info.get('accepted_prediction_tokens', 0) > 0:
+                result['token_usage']['accepted_prediction_tokens'] = token_info['accepted_prediction_tokens']
+            if token_info.get('rejected_prediction_tokens', 0) > 0:
+                result['token_usage']['rejected_prediction_tokens'] = token_info['rejected_prediction_tokens']
         
         # Add id column if it exists
         if 'id' in row:
@@ -346,6 +311,16 @@ class ScamDetectionEvaluator:
         
         return result
     
+    def get_model_config(self) -> Dict[str, Any]:
+        """Get detailed model configuration using ModelConfigManager."""
+        return ModelConfigManager.get_model_config(
+            llm_instance=self.llm_instance,
+            provider=self.provider,
+            model=self.model,
+            sample_size=self.sample_size,
+            balanced_sample=self.balanced_sample
+        )
+    
     def calculate_metrics(self) -> Dict[str, Any]:
         """Calculate performance metrics"""
         if not self.results:
@@ -372,13 +347,23 @@ class ScamDetectionEvaluator:
         
         dataset_info['features'] = self.content_columns
         dataset_info['features_used'] = self.content_columns
+        
+        # Add token usage summary to metrics
+        token_summary = self.get_token_summary()
+        if token_summary:
+            metrics['token_usage'] = token_summary
+        
+        # Get model configuration
+        model_config = self.get_model_config()
+        
         calculator = MetricsCalculator(self.results)
         calculator.print_metrics_summary(dataset_info)
-        # Initialize results saver
+        # Initialize results saver with model config
         saver = ResultsSaver(
             dataset_name=self.data_loader.dataset_name,
             provider=self.provider,
-            model=self.model
+            model=self.model,
+            model_config=model_config
         )
         
         # Save results
@@ -390,49 +375,37 @@ class ScamDetectionEvaluator:
         
         return save_paths
     
-    def run_full_evaluation(self) -> Dict[str, Any]:
-        """
-        Run complete evaluation pipeline: setup -> load -> evaluate -> calculate -> save
+    def get_token_summary(self, include_details: bool = False) -> Optional[Dict[str, Any]]:
+        """Get summary of token usage from evaluation.
+        
+        Args:
+            include_details: Whether to include detailed by_operation breakdown
         
         Returns:
-            Dictionary with evaluation results and file paths
+            Dictionary with token usage summary or None if no usage tracked
         """
-        print("="*80)
-        print("SCAM DETECTION EVALUATION PIPELINE")
-        print("="*80)
+        if not self.token_tracker.records:
+            return None
         
-        # Setup LLM
-        print("\n1. Setting up LLM...")
-        self.setup_llm()
+        summary = self.token_tracker.get_summary(include_details=include_details)
         
-        # Load and prepare data
-        print("\n2. Loading and preparing data...")
-        sample_df = self.load_and_prepare_data()
+        # Add cost estimation with default OpenAI pricing
+        costs = self.token_tracker.estimate_cost()
+        if costs:
+            summary['estimated_costs'] = costs
         
-        # Run evaluation
-        print("\n3. Running evaluation...")
-        results = self.evaluate_sample(sample_df)
-        
-        # Calculate metrics
-        print("\n4. Calculating metrics...")
-        metrics = self.calculate_metrics()
-        
-        # Save results
-        print("\n5. Saving results...")
-        save_paths = self.save_results()
-        
-        print("\n" + "="*80)
-        print("EVALUATION COMPLETED SUCCESSFULLY")
-        print("="*80)
-        
-        return {
-            'results': results,
-            'metrics': metrics,
-            'save_paths': save_paths,
-            'dataset_info': self.data_loader.get_dataset_info()
-        }
+        return summary
+    
+    def print_token_summary(self) -> None:
+        """Print token usage summary to console."""
+        if self.token_tracker.records:
+            self.token_tracker.print_summary()
+            self.token_tracker.print_cost_estimate()
+        else:
+            print("No token usage data available.")
+    
 
-    async def run_full_evaluation_async(self, concurrent_requests: int = 10) -> Dict[str, Any]:
+    async def run_full_evaluation(self, concurrent_requests: int = 10) -> Dict[str, Any]:
         """
         Run complete evaluation pipeline asynchronously: setup -> load -> evaluate -> calculate -> save
         
@@ -456,7 +429,7 @@ class ScamDetectionEvaluator:
         
         # Run evaluation asynchronously
         print("\n3. Running evaluation asynchronously...")
-        results = await self.evaluate_sample_async(sample_df, concurrent_requests)
+        results = await self.evaluate_sample(sample_df, concurrent_requests)
         
         # Calculate metrics
         print("\n4. Calculating metrics...")
@@ -466,11 +439,16 @@ class ScamDetectionEvaluator:
         print("\n5. Saving results...")
         save_paths = self.save_results()
         
+        # Print token usage summary
+        print("\n6. Token Usage Summary:")
+        self.print_token_summary()
+        
         return {
             'results': results,
             'metrics': metrics,
             'save_paths': save_paths,
-            'dataset_info': self.data_loader.get_dataset_info()
+            'dataset_info': self.data_loader.get_dataset_info(),
+            'token_usage': self.get_token_summary()
         }
     
     # ==================== CHECKPOINT FUNCTIONALITY ====================
@@ -558,8 +536,6 @@ class ScamDetectionEvaluator:
             'model': self.model,
             'sample_size': self.sample_size,
             'content_columns': self.content_columns,
-            'enable_thinking': self.enable_thinking,
-            'use_structure_model': self.use_structure_model,
             'current_index': self.current_index,
             'total_records': self.total_records,
             'results': self.results,
@@ -585,146 +561,8 @@ class ScamDetectionEvaluator:
             # Clear the postfix after a brief moment to keep it clean
             progress_bar.refresh()
     
-    def process_full_dataset_with_checkpoints(self, 
-                                            checkpoint_interval: int = 1000,
-                                            checkpoint_dir: str = "checkpoints/evaluation",
-                                            resume_from_checkpoint: bool = True,
-                                            override_compatibility: bool = False) -> Dict[str, Any]:
-        """
-        Process the entire dataset (no sampling) with checkpointing capabilities
-        
-        Args:
-            checkpoint_interval: Number of records to process before saving checkpoint
-            checkpoint_dir: Directory to save checkpoints
-            resume_from_checkpoint: Whether to resume from existing checkpoint if found
-            override_compatibility: Whether to override checkpoint compatibility checks
-            
-        Returns:
-            Dictionary with evaluation results and file paths
-        """
-        print("="*80)
-        print("EVALUATION PIPELINE WITH CHECKPOINTING")
-        print("="*80)
-        
-        # Setup LLM
-        self.setup_llm()
-        
-        # Load full dataset (no sampling)
-        self.data_loader.load_dataset()
-        dataset_df = self.data_loader.df
-        self.total_records = len(dataset_df)
-        
-        # Validate content columns
-        if self.content_columns:
-            missing_columns = [col for col in self.content_columns if col not in self.data_loader.features]
-            if missing_columns:
-                raise ValueError(f"Specified content columns not found: {missing_columns}")
-        else:
-            self.content_columns = self.data_loader.features
-        
-        # Initialize prompt generator
-        self.prompt_generator = PromptGenerator(self.data_loader.features, self.content_columns)
-        
-        print(f"Dataset: {self.data_loader.dataset_name}")
-        print(f"Total records: {self.total_records:,}")
-        print(f"Checkpoint interval: {checkpoint_interval:,}")
-        print(f"Content features: {', '.join(self.content_columns)}")
-        
-        # Load checkpoint if available
-        self.load_checkpoint(checkpoint_dir, resume_from_checkpoint, override_compatibility)
-        
-        self.start_time = time.time()
-        total_processed = len(self.results)
-        
-        print(f"\nProcessing records {self.current_index + 1} to {self.total_records}...")
-        
-        # Get system prompt
-        system_prompt = self.prompt_generator.get_system_prompt()
-        
-        # Create progress bar
-        progress_bar = tqdm(
-            range(self.current_index, self.total_records),
-            desc="Evaluating",
-            unit="records",
-            initial=self.current_index,
-            total=self.total_records
-        )
-        
-        # Process remaining records
-        for i in progress_bar:
-            row = dataset_df.iloc[i]
-            
-            # Update progress bar description
-            progress_bar.set_description(f"Evaluating record {i + 1}/{self.total_records}")
-            
-            try:
-                # Create user prompt
-                user_prompt = self.prompt_generator.create_user_prompt(row.to_dict())
-                
-                # Make API call
-                if self.use_structure_model:
-                    response = make_api_call(self.llm, system_prompt, user_prompt,
-                                           response_schema=None, enable_thinking=self.enable_thinking, use_structure_model=True, structure_model=self.structure_model)
-                    # Thinking tokens are automatically removed in make_api_call
-                    response = parse_structured_output(self.structure_model, response, EvaluationResponseSchema)
-                else:
-                    response = make_api_call(self.llm, system_prompt, user_prompt, response_schema=EvaluationResponseSchema, use_structure_model=False)
-                
-                # Extract prediction
-                predicted_scam = response.Phishing
-                predicted_label = 1 if predicted_scam else 0
-                actual_label = row['label']
-                is_correct = predicted_label == actual_label
-                
-                # Create evaluation record
-                result = self._create_result_record(row, predicted_label, is_correct, response.Reason)
-                
-            except Exception as e:
-                tqdm.write(f"Error processing record {i + 1}: {e}")
-                result = self._create_error_result_record(row, str(e))
-            
-            self.results.append(result)
-            self.current_index = i + 1
-            total_processed += 1
-            
-            # Save checkpoint at intervals
-            if (i + 1) % checkpoint_interval == 0:
-                self.save_checkpoint(checkpoint_dir)
-                self._write_checkpoint_message(f"Checkpoint saved at record {i + 1}", progress_bar)
-        
-        # Close progress bar
-        progress_bar.close()
-        
-        # Final checkpoint
-        self.save_checkpoint(checkpoint_dir)
-        
-        # Calculate metrics and save final results
-        metrics = self.calculate_metrics()
-        save_paths = self.save_results()
-        
-        total_time = time.time() - self.start_time
-        print(f"\n{'='*80}")
-        print("EVALUATION COMPLETED")
-        print(f"{'='*80}")
-        print(f"Total records processed: {total_processed:,}")
-        print(f"Total time: {total_time:.2f} seconds")
-        print(f"Average time per record: {total_time/total_processed:.3f} seconds")
-        print(f"Accuracy: {metrics.get('accuracy', 0):.2%}")
-        
-        return {
-            'results': self.results,
-            'metrics': metrics,
-            'save_paths': save_paths,
-            'dataset_info': self.data_loader.get_dataset_info(),
-            'summary': {
-                'total_records': len(self.results),
-                'successful_evaluations': len([r for r in self.results if r.get('predicted_label') is not None]),
-                'accuracy': metrics.get('accuracy', 0),
-                'checkpoint_file': str(self.checkpoint_file) if self.checkpoint_file else None
-            }
-        }
     
-    async def process_full_dataset_with_checkpoints_async_chunked(self, 
+    async def process_full_dataset_with_checkpoints_chunked(self, 
                                                                  checkpoint_interval: int = 1000,
                                                                  checkpoint_dir: str = "checkpoints/evaluation",
                                                                  resume_from_checkpoint: bool = True,
@@ -808,7 +646,7 @@ class ScamDetectionEvaluator:
             # Create tasks for this chunk
             async def evaluate_with_semaphore(index: int, row: pd.Series):
                 async with semaphore:
-                    result = await self._evaluate_single_record_async(index, row)
+                    result = await self._evaluate_single_record(index, row)
                     chunk_progress.update(1)
                     return result
             
@@ -873,19 +711,13 @@ class ScamDetectionEvaluator:
             }
         }
     
-    async def _evaluate_single_record_async(self, index: int, row: pd.Series) -> Dict[str, Any]:
+    async def _evaluate_single_record(self, index: int, row: pd.Series) -> Dict[str, Any]:
         """Evaluate a single record asynchronously"""
         try:
             system_prompt = self.prompt_generator.get_system_prompt()
             user_prompt = self.prompt_generator.create_user_prompt(row.to_dict())
             
-            if self.use_structure_model:
-                response = await make_api_call_async(self.llm, system_prompt, user_prompt,
-                                                   response_schema=None, enable_thinking=self.enable_thinking, use_structure_model=True, structure_model=self.structure_model)
-                # Thinking tokens are automatically removed in make_api_call_async
-                response = await parse_structured_output_async(self.structure_model, response, EvaluationResponseSchema)
-            else:
-                response = await make_api_call_async(self.llm, system_prompt, user_prompt, response_schema=EvaluationResponseSchema, use_structure_model=False)
+            response = await make_api_call(self.llm, system_prompt, user_prompt, response_schema=EvaluationResponseSchema)
             
             predicted_scam = response.Phishing
             predicted_label = 1 if predicted_scam else 0
@@ -897,7 +729,7 @@ class ScamDetectionEvaluator:
         except Exception as e:
             return self._create_error_result_record(row, str(e))
 
-    async def process_full_dataset_with_checkpoints_async(self, 
+    async def process_full_dataset_with_checkpoints(self, 
                                                          checkpoint_interval: int = 1000,
                                                          checkpoint_dir: str = "checkpoints/evaluation",
                                                          resume_from_checkpoint: bool = True,
@@ -989,7 +821,7 @@ class ScamDetectionEvaluator:
         async def process_single_record(index: int, row: pd.Series):
             """Process a single record with semaphore control"""
             async with semaphore:
-                return await self._evaluate_single_record_async(index, row)
+                return await self._evaluate_single_record(index, row)
         
         # Main processing loop with overlapping batches
         while next_index < self.total_records or active_tasks:

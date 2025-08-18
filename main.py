@@ -50,14 +50,18 @@ class InteractiveProcessor:
         
     async def run_evaluation(self) -> Dict[str, Any]:
         """Run evaluation task."""
+        # Extract model parameters to pass to evaluator
+        model_params = {}
+        if 'reasoning_effort' in self.config:
+            model_params['reasoning_effort'] = self.config['reasoning_effort']
+        
         evaluator = ScamDetectionEvaluator(
             dataset_path=self.config['dataset_path'],
             provider=self.config['provider'],
             model=self.config['model'],
             sample_size=self.config.get('sample_size'),
             balanced_sample=self.config.get('balanced_sample', True),
-            enable_thinking=self.config.get('enable_thinking', False),
-            use_structure_model=self.config.get('use_structure_model', False)
+            **model_params
         )
         
         # Check if we're processing a sample or full dataset
@@ -66,36 +70,31 @@ class InteractiveProcessor:
         if is_sample:
             # For samples, use the run_full_evaluation methods
             print("\nProcessing sample dataset...")
-            if self.config.get('use_async', True):
-                return await evaluator.run_full_evaluation_async(
-                    concurrent_requests=self.config.get('concurrent_requests', 10)
-                )
-            else:
-                return evaluator.run_full_evaluation()
+            return await evaluator.run_full_evaluation(
+                concurrent_requests=self.config.get('concurrent_requests', 10)
+            )
         else:
             # For full dataset, use checkpoint methods
-            if self.config.get('use_async', True):
-                return await evaluator.process_full_dataset_with_checkpoints_async(
-                    checkpoint_interval=self.config.get('checkpoint_interval', 100),
-                    resume_from_checkpoint=bool(self.config.get('checkpoint_file')),
-                    concurrent_requests=self.config.get('concurrent_requests', 10)
-                )
-            else:
-                return evaluator.process_full_dataset_with_checkpoints(
-                    checkpoint_interval=self.config.get('checkpoint_interval', 100),
-                    resume_from_checkpoint=bool(self.config.get('checkpoint_file'))
-                )
+            return await evaluator.process_full_dataset_with_checkpoints(
+                checkpoint_interval=self.config.get('checkpoint_interval', 100),
+                resume_from_checkpoint=bool(self.config.get('checkpoint_file')),
+                concurrent_requests=self.config.get('concurrent_requests', 10)
+            )
     
     async def run_annotation(self) -> Dict[str, Any]:
         """Run annotation task."""
+        # Extract model parameters to pass to annotator
+        model_params = {}
+        if 'reasoning_effort' in self.config:
+            model_params['reasoning_effort'] = self.config['reasoning_effort']
+        
         annotator = LLMAnnotationPipeline(
             dataset_path=self.config['dataset_path'],
             provider=self.config['provider'],
             model=self.config['model'],
             sample_size=self.config.get('sample_size'),
             balanced_sample=self.config.get('balanced_sample', True),
-            enable_thinking=self.config.get('enable_thinking', False),
-            use_structure_model=self.config.get('use_structure_model', False)
+            **model_params
         )
         
         # Check if we're processing a sample or full dataset
@@ -104,37 +103,32 @@ class InteractiveProcessor:
         if is_sample:
             # For samples, use the run_full_annotation methods
             print("\nProcessing sample dataset...")
-            if self.config.get('use_async', True):
-                return await annotator.run_full_annotation_async(
-                    concurrent_requests=self.config.get('concurrent_requests', 10)
-                )
-            else:
-                return annotator.run_full_annotation()
+            return await annotator.run_full_annotation(
+                concurrent_requests=self.config.get('concurrent_requests', 10)
+            )
         else:
             # For full dataset, use checkpoint methods
-            if self.config.get('use_async', True):
-                return await annotator.process_full_dataset_with_checkpoints_async(
-                    checkpoint_interval=self.config.get('checkpoint_interval', 100),
-                    resume_from_checkpoint=bool(self.config.get('checkpoint_file')),
-                    concurrent_requests=self.config.get('concurrent_requests', 10)
-                )
-            else:
-                return annotator.process_full_dataset_with_checkpoints(
-                    checkpoint_interval=self.config.get('checkpoint_interval', 100),
-                    resume_from_checkpoint=bool(self.config.get('checkpoint_file'))
-                )
+            return await annotator.process_full_dataset_with_checkpoints(
+                checkpoint_interval=self.config.get('checkpoint_interval', 100),
+                resume_from_checkpoint=bool(self.config.get('checkpoint_file')),
+                concurrent_requests=self.config.get('concurrent_requests', 10)
+            )
     
     async def run_synthesis(self) -> Dict[str, Any]:
         """Run synthesis task."""
+        # Extract model parameters to pass to generator
+        model_params = {}
+        if 'reasoning_effort' in self.config:
+            model_params['reasoning_effort'] = self.config['reasoning_effort']
+        
         generator = SynthesisGenerator(
             synthesis_type=self.config['synthesis_type'],
             sample_size=self.config.get('sample_size', 100),
             provider=self.config['provider'],
             model=self.config['model'],
-            enable_thinking=self.config.get('enable_thinking', False),
-            use_structure_model=self.config.get('use_structure_model', False),
             save_to_mongodb=self.config.get('save_to_mongodb', True),
             category=self.config.get('category', 'ALL'),
+            **model_params,
             enable_diversity=self.config.get('enable_diversity', False),
             diversity_level=self.config.get('diversity_level', 'medium'),
             enable_multi_agent=self.config.get('enable_multi_agent', False),
@@ -248,8 +242,10 @@ class InteractiveProcessor:
         
         # Step 4: Choose model (skip if loaded from checkpoint)
         if not self.config.get('skip_model_selection', False):
-            model = self.model_selector.choose_model(provider)
+            model, model_parameters = self.model_selector.choose_model(provider)
             self.config['model'] = model
+            # Store model parameters in config
+            self.config.update(model_parameters)
         else:
             model = self.config['model']
             print(f"Using model from checkpoint: {model}")

@@ -10,7 +10,7 @@ from pathlib import Path
 
 # Import the classes we want to test
 from src.evaluate.evaluator import ScamDetectionEvaluator, EvaluationResponseSchema
-from src.llm_core.api_call import make_api_call, make_api_call_async
+from src.llm_core.api_call import make_api_call
 
 
 class TestScamDetectionEvaluator:
@@ -30,30 +30,24 @@ class TestScamDetectionEvaluator:
         assert evaluator.model == "gpt-4o-mini"
         assert evaluator.sample_size == 3
         assert evaluator.balanced_sample == False
-        assert evaluator.use_structure_model == False
-        assert evaluator.enable_thinking == False
     
     @patch('src.evaluate.evaluator.LLM')
     def test_setup_llm(self, mock_llm_class, temp_dataset_file, mock_llm_instance, mock_llm):
         """Test LLM setup"""
         mock_llm_class.return_value = mock_llm_instance
         mock_llm_instance.get_llm.return_value = mock_llm
-        mock_llm_instance.get_structure_model.return_value = mock_llm
         
         evaluator = ScamDetectionEvaluator(
             dataset_path=temp_dataset_file,
             provider="openai",
-            model="gpt-4o-mini",
-            use_structure_model=True
+            model="gpt-4o-mini"
         )
         
         evaluator.setup_llm()
         
         assert evaluator.llm is not None
-        assert evaluator.structure_model is not None
         mock_llm_class.assert_called_once_with(provider="openai", model="gpt-4o-mini")
         mock_llm_instance.get_llm.assert_called_once()
-        mock_llm_instance.get_structure_model.assert_called_once()
     
     @patch('src.evaluate.evaluator.LLM')
     def test_load_and_prepare_data(self, mock_llm_class, temp_dataset_file, sample_dataset):
@@ -112,16 +106,16 @@ class TestScamDetectionEvaluator:
         if call_args and len(call_args) > 1 and 'response_schema' in call_args[1]:
             assert call_args[1]['response_schema'] == EvaluationResponseSchema
     
-    @patch('src.evaluate.evaluator.make_api_call_async')
+    @patch('src.evaluate.evaluator.make_api_call')
     @patch('src.evaluate.evaluator.LLM')
-    def test_evaluate_sample_async(self, mock_llm_class, mock_api_call_async,
+    def test_evaluate_sample_async(self, mock_llm_class, mock_api_call,
                                    temp_dataset_file, mock_llm_instance, mock_llm,
                                    mock_evaluation_response):
         """Test asynchronous evaluation"""
         # Setup mocks
         mock_llm_class.return_value = mock_llm_instance
         mock_llm_instance.get_llm.return_value = mock_llm
-        mock_api_call_async.return_value = mock_evaluation_response
+        mock_api_call.return_value = mock_evaluation_response
         
         evaluator = ScamDetectionEvaluator(
             dataset_path=temp_dataset_file,
@@ -134,80 +128,19 @@ class TestScamDetectionEvaluator:
         sample_df = evaluator.load_and_prepare_data()
         
         # Run async evaluation
-        results = asyncio.run(evaluator.evaluate_sample_async(sample_df, concurrent_requests=2))
+        results = asyncio.run(evaluator.evaluate_sample(sample_df, concurrent_requests=2))
         
         assert len(results) == 2
         assert all('actual_label' in result for result in results)
         
         # Verify async API call was made
-        mock_api_call_async.assert_called()
+        mock_api_call.assert_called()
         # Check that response_schema is passed (relaxed check)
-        call_args = mock_api_call_async.call_args
+        call_args = mock_api_call.call_args
         if call_args and len(call_args) > 1 and 'response_schema' in call_args[1]:
             assert call_args[1]['response_schema'] == EvaluationResponseSchema
     
-    @patch('src.evaluate.evaluator.make_api_call')
-    @patch('src.evaluate.evaluator.LLM')
-    def test_evaluate_with_structure_model(self, mock_llm_class, mock_api_call,
-                                          temp_dataset_file, mock_llm_instance, 
-                                          mock_llm, mock_evaluation_response):
-        """Test evaluation with structure model enabled"""
-        # Setup mocks
-        mock_llm_class.return_value = mock_llm_instance
-        mock_llm_instance.get_llm.return_value = mock_llm
-        mock_llm_instance.get_structure_model.return_value = mock_llm
-        mock_api_call.return_value = mock_evaluation_response
-        
-        evaluator = ScamDetectionEvaluator(
-            dataset_path=temp_dataset_file,
-            provider="openai",
-            model="gpt-4o-mini",
-            sample_size=1,
-            use_structure_model=True
-        )
-        
-        evaluator.setup_llm()
-        sample_df = evaluator.load_and_prepare_data()
-        results = evaluator.evaluate_sample(sample_df)
-        
-        assert len(results) == 1
-        
-        # Verify API call was made with structure model parameters (relaxed)
-        mock_api_call.assert_called()
-        call_args = mock_api_call.call_args
-        if call_args and len(call_args) > 1:
-            # Just check that some structure model related parameter exists
-            assert 'use_structure_model' in call_args[1] or 'structure_model' in call_args[1]
     
-    @patch('src.evaluate.evaluator.make_api_call')
-    @patch('src.evaluate.evaluator.LLM')
-    def test_evaluate_with_thinking_tokens(self, mock_llm_class, mock_api_call,
-                                          temp_dataset_file, mock_llm_instance,
-                                          mock_llm, mock_evaluation_response):
-        """Test evaluation with thinking tokens enabled"""
-        # Setup mocks
-        mock_llm_class.return_value = mock_llm_instance
-        mock_llm_instance.get_llm.return_value = mock_llm
-        mock_api_call.return_value = mock_evaluation_response
-        
-        evaluator = ScamDetectionEvaluator(
-            dataset_path=temp_dataset_file,
-            provider="openai",
-            model="gpt-4o-mini",
-            sample_size=1,
-            enable_thinking=True
-        )
-        
-        evaluator.setup_llm()
-        sample_df = evaluator.load_and_prepare_data()
-        results = evaluator.evaluate_sample(sample_df)
-        
-        assert len(results) == 1
-        
-        # Verify API call was made with thinking enabled (relaxed)
-        mock_api_call.assert_called()
-        # Just verify that API call was made
-        assert mock_api_call.call_count > 0
     
     @patch('src.evaluate.evaluator.make_api_call')
     @patch('src.evaluate.evaluator.LLM')
@@ -339,9 +272,7 @@ class TestAPICallIntegration:
             llm=mock_llm,
             system_prompt="Test system prompt",
             user_prompt="Test user prompt",
-            response_schema=EvaluationResponseSchema,
-            enable_thinking=False,
-            use_structure_model=False
+            response_schema=EvaluationResponseSchema
         )
         
         assert isinstance(result, type(mock_evaluation_response))
@@ -369,10 +300,7 @@ class TestAPICallIntegration:
                 llm=mock_llm,
                 system_prompt="Test system prompt",
                 user_prompt="Test user prompt",
-                response_schema=EvaluationResponseSchema,
-                enable_thinking=False,
-                use_structure_model=True,
-                structure_model=mock_structure_model
+                response_schema=EvaluationResponseSchema
             )
             
             mock_parse.assert_called_once()

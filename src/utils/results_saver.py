@@ -4,14 +4,16 @@ import json
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any
+from .model_config_manager import ModelConfigManager
 
 class ResultsSaver:
     """Saves evaluation results to a structured, timestamped directory."""
     
-    def __init__(self, dataset_name: str, provider: str = None, model: str = None):
+    def __init__(self, dataset_name: str, provider: str = None, model: str = None, model_config: Dict[str, Any] = None):
         self.dataset_name = dataset_name
         self.provider = provider
         self.model = model
+        self.model_config = model_config or {}
         self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.results_dir = Path(f"results/evaluation/{dataset_name}/{self.timestamp}")
         
@@ -30,24 +32,20 @@ class ResultsSaver:
         detailed_path = self.results_dir / "detailed_results.csv"
         detailed_df.to_csv(detailed_path, index=False)
         
-        # Prepare metrics for CSV format
-        metrics_data = self._flatten_metrics_for_csv(metrics, dataset_info)
-        metrics_df = pd.DataFrame([metrics_data])
-        metrics_path = self.results_dir / "evaluation_metrics.csv"
-        metrics_df.to_csv(metrics_path, index=False)
-        
-        # Also save complete evaluation info as JSON for reference
+        # Save complete evaluation info as JSON for reference
         evaluation_info = {
             'timestamp': self.timestamp,
             'dataset_info': dataset_info,
             'evaluation_config': {
                 'provider': self.provider,
                 'model': self.model,
-                'sample_size': len(detailed_results)
+                'sample_size': len(detailed_results),
+                'model_config': ModelConfigManager.format_for_json(self.model_config) if self.model_config else {}
             },
             'metrics': metrics,
             'results_directory': str(self.results_dir)
         }
+        
         
         info_path = self.results_dir / "evaluation_info.json"
         with open(info_path, 'w') as f:
@@ -55,61 +53,13 @@ class ResultsSaver:
         
         print(f"\nResults saved to: {self.results_dir}")
         print(f"- Detailed results: {detailed_path}")
-        print(f"- Evaluation metrics: {metrics_path}")
         print(f"- Evaluation info: {info_path}")
         
         return {
             'results_directory': str(self.results_dir),
             'detailed_results_path': str(detailed_path),
-            'metrics_path': str(metrics_path),
             'info_path': str(info_path)
         }
-    
-    def _flatten_metrics_for_csv(self, metrics: Dict[str, Any], dataset_info: Dict[str, Any] = None) -> Dict[str, Any]:
-        """Flatten nested metrics dictionary for CSV format"""
-        flattened = {
-            'timestamp': self.timestamp,
-            'dataset_name': self.dataset_name,
-            'provider': self.provider,
-            'model': self.model
-        }
-        
-        # Add dataset info
-        if dataset_info:
-            flattened.update({
-                'dataset_path': dataset_info.get('path', ''),
-                'total_records_in_dataset': dataset_info.get('total_records', 0),
-                'features_used': ', '.join(dataset_info.get('features', [])),
-                'scam_count_in_dataset': dataset_info.get('scam_count', 0),
-                'legitimate_count_in_dataset': dataset_info.get('legitimate_count', 0)
-            })
-        
-        # Add main metrics
-        if 'error' not in metrics:
-            flattened.update({
-                'total_samples_evaluated': metrics.get('total_samples_in_dataset', 0),
-                'successfully_processed': metrics.get('successfully_processed', 0),
-                'failed_predictions': metrics.get('failed_predictions', 0),
-                'correct_predictions': metrics.get('correct_predictions', 0),
-                'accuracy': metrics.get('accuracy', 0),
-                'precision': metrics.get('precision', 0),
-                'recall': metrics.get('recall', 0),
-                'f1_score': metrics.get('f1_score', 0),
-                'specificity': metrics.get('specificity', 0)
-            })
-            
-            # Add confusion matrix
-            cm = metrics.get('confusion_matrix', {})
-            flattened.update({
-                'true_positives': cm.get('true_positives', 0),
-                'true_negatives': cm.get('true_negatives', 0),
-                'false_positives': cm.get('false_positives', 0),
-                'false_negatives': cm.get('false_negatives', 0)
-            })
-        else:
-            flattened['error'] = metrics.get('error', 'Unknown error')
-            
-        return flattened
     
     def create_summary_report(self, metrics: Dict[str, Any], dataset_info: Dict[str, Any] = None) -> str:
         """Create a human-readable summary report"""
@@ -139,8 +89,17 @@ class ResultsSaver:
                 "MODEL CONFIGURATION:",
                 f"- Provider: {self.provider}",
                 f"- Model: {self.model}",
-                ""
             ])
+            
+            # Add detailed model configuration if available
+            if self.model_config:
+                model_display = ModelConfigManager.format_for_display(self.model_config)
+                # Extract just the parameter lines from the display
+                for line in model_display.split('\n'):
+                    if 'Reasoning Effort:' in line or 'Verbosity:' in line or 'Temperature:' in line or 'Max Completion Tokens:' in line:
+                        report_lines.append(f"  {line.strip()}")
+            
+            report_lines.append("")
         
         if 'error' not in metrics:
             report_lines.extend([
@@ -166,6 +125,54 @@ class ResultsSaver:
                 f"- False Positives (Legitimate misclassified as Scam): {cm.get('false_positives', 0)}",
                 f"- False Negatives (Scam misclassified as Legitimate): {cm.get('false_negatives', 0)}",
             ])
+            
+            # Add token usage section if available
+            if 'token_usage' in metrics:
+                token_usage = metrics['token_usage']
+                report_lines.extend([
+                    "",
+                    "TOKEN USAGE:",
+                    f"- Total API Calls: {token_usage.get('total_calls', 0)}",
+                    f"- Total Tokens Used: {token_usage.get('total_tokens', 0):,}",
+                    f"- Average Tokens per Call: {token_usage.get('average_tokens_per_call', 0):.0f}",
+                    f"  - Average Input: {token_usage.get('total_input_tokens', 0) / max(token_usage.get('total_calls', 1), 1):.0f}",
+                    f"  - Average Output: {token_usage.get('total_output_tokens', 0) / max(token_usage.get('total_calls', 1), 1):.0f}",
+                ])
+                
+                # Add cached tokens if any
+                if token_usage.get('total_cached_tokens', 0) > 0:
+                    report_lines.append(f"- Cached Tokens: {token_usage.get('total_cached_tokens', 0):,}")
+                
+                # Add reasoning tokens if any
+                if token_usage.get('total_reasoning_tokens', 0) > 0:
+                    report_lines.append(f"- Reasoning Tokens: {token_usage.get('total_reasoning_tokens', 0):,}")
+                
+                # Add cost estimate if available
+                if 'estimated_costs' in token_usage:
+                    costs = token_usage['estimated_costs']
+                    total_cost = costs.get('total_cost', 0)
+                    
+                    # Calculate average cost per call
+                    total_calls = token_usage.get('total_calls', 1)
+                    avg_cost = total_cost / total_calls if total_calls > 0 else 0
+                    
+                    report_lines.extend([
+                        "",
+                        "ESTIMATED COST:",
+                        f"- Total Cost:     ${total_cost:.4f}",
+                        f"- Average/Call:   ${avg_cost:.4f}",
+                    ])
+                    
+                    # Build breakdown with cached cost if present
+                    breakdown = f"- Breakdown:      ${costs.get('input_cost', 0):.4f} (input)"
+                    if costs.get('cached_cost', 0) > 0:
+                        breakdown += f" + ${costs.get('cached_cost', 0):.4f} (cached)"
+                    breakdown += f" + ${costs.get('output_cost', 0):.4f} (output)"
+                    report_lines.append(breakdown)
+                    
+                    # Add cache savings if any
+                    if costs.get('cache_savings', 0) > 0:
+                        report_lines.append(f"- Cache Savings:  ${costs.get('cache_savings', 0):.4f}")
         else:
             report_lines.extend([
                 "EVALUATION ERROR:",

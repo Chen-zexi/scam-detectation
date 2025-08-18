@@ -24,7 +24,7 @@ from enum import Enum
 import time
 from datetime import datetime
 
-from src.llm_core.api_call import make_api_call_async
+from src.llm_core.api_call import make_api_call
 from src.llm_core.api_provider import LLM
 from src.synthesize.diversity_manager import DiversityManager, DiversityConfig
 from src.synthesize.synthesis_prompts import SynthesisPromptsManager
@@ -405,12 +405,11 @@ Focus on creating a strong foundation that:
 This is the initial generation - aim for good quality that can be improved through collaboration."""
         
         try:
-            response = await make_api_call_async(
+            response = await make_api_call(
                 self.llm,
                 self.agents["content_generator"].system_prompt,
                 agent_prompt,
-                response_schema=target_schema,
-                enable_thinking=True
+                response_schema=target_schema
             )
             
             return response.dict() if hasattr(response, 'dict') else response
@@ -422,7 +421,7 @@ This is the initial generation - aim for good quality that can be improved throu
                 synthesis_type, category, diversity_config
             )
             
-            response = await make_api_call_async(
+            response = await make_api_call(
                 self.llm,
                 self.prompts_manager.get_system_prompt(synthesis_type),
                 fallback_prompt,
@@ -459,10 +458,11 @@ Format your response as JSON:
     "strengths": ["strength1", "strength2"],
     "weaknesses": ["weakness1", "weakness2"],
     "suggestions": ["suggestion1", "suggestion2"]
-}}"""
+}}
+"""
         
         try:
-            response = await make_api_call_async(
+            response = await make_api_call(
                 self.llm,
                 self.agents["quality_evaluator"].system_prompt,
                 evaluator_prompt
@@ -470,9 +470,30 @@ Format your response as JSON:
             
             # Parse JSON response
             if isinstance(response, str):
-                return json.loads(response)
-            else:
-                return response.dict() if hasattr(response, 'dict') else response
+                try:
+                    data = json.loads(response)
+                    if isinstance(data, dict):
+                        return data
+                except json.JSONDecodeError:
+                    logger.warning(f"Failed to parse JSON from evaluator: {response}")
+            elif hasattr(response, 'dict'):
+                return response.dict()
+            elif isinstance(response, dict):
+                return response
+
+            logger.warning(f"Content evaluation returned non-dict format. Response: {response}")
+            # Return basic evaluation
+            return {
+                "realism": 6.0,
+                "authenticity": 6.0,
+                "diversity": 6.0,
+                "language_quality": 6.0,
+                "training_value": 6.0,
+                "overall_score": 6.0,
+                "strengths": ["Generated successfully"],
+                "weaknesses": ["Evaluation failed"],
+                "suggestions": ["Manual review recommended"]
+            }
                 
         except Exception as e:
             logger.error(f"Content evaluation failed: {e}")
@@ -533,7 +554,7 @@ Provide expert feedback focusing on your specialization: {specialist.specializat
 Evaluate and provide specific suggestions for improvement in your domain of expertise.
 Format as JSON with scores (1-10) and specific recommendations."""
         
-        response = await make_api_call_async(
+        response = await make_api_call(
             self.llm,
             specialist.system_prompt,
             specialist_prompt
@@ -571,7 +592,7 @@ Improve the content by addressing the identified weaknesses and suggestions whil
 Generate improved content that addresses the feedback while maintaining quality."""
         
         try:
-            response = await make_api_call_async(
+            response = await make_api_call(
                 self.llm,
                 self.agents["content_refiner"].system_prompt,
                 refiner_prompt,
@@ -608,7 +629,7 @@ Synthesis type: {synthesis_type}
 Category: {category}"""
         
         try:
-            response = await make_api_call_async(
+            response = await make_api_call(
                 self.llm,
                 self.agents["coordinator"].system_prompt,
                 coordinator_prompt
